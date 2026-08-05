@@ -28,6 +28,8 @@ export type PolicyConditions = {
   region_sidos: string[];
   /** 시군구 '이름'. 정부24만 채워진다 */
   region_sigungu: string | null;
+  /** 정부24 `사용자구분`. 온통청년은 빈 배열 */
+  audiences: string[];
   eligibility_codes: EligibilityCodes;
 };
 
@@ -45,7 +47,34 @@ export type Profile = {
 
 export type GateResult = { pass: true } | { pass: false; blockers: string[] };
 
-type CodeGroup = "gender" | "income" | "situation" | "household" | "business";
+/**
+ * 코드로 '아님'을 확정하는 그룹. **`household`는 빠져 있다.**
+ *
+ * 실데이터 측정(수도권 대표 프로필, 목록 화면 888건 기준):
+ * 가구상황이 단독으로 떨어뜨린 55건 중 **43건이 `무주택세대` 대상**이었다.
+ * `1인가구`와 `무주택세대`는 서로 배타적인 축이 아니다 — 가구 규모와 주택 소유는 별개다.
+ * 게다가 주거는 기본 ON 분야라(PRD §6.1) 이 오판이 정확히 주력 화면에서 발생한다.
+ * "확실히 아닌 것만 뺀다"는 게이트 원칙에 어긋나므로 가구상황은 AI 판정으로 넘긴다.
+ *
+ * `situation`은 남긴다. 단독 탈락 99건 중 68건이 `구직자/실업자` 대상이라 근로자에게 정당한 배제다.
+ * 남은 31건(장애인·보훈·질병)은 사용자가 스스로 체크할 동기가 강한 항목이라 폼 안내로 회수한다.
+ * **성격의 차이가 아니라 정도와 노출의 차이다** — 잔여 오판 위험 3.5%를 감수한 트레이드오프다.
+ */
+type CheckedGroup = "gender" | "income" | "situation" | "business";
+
+/**
+ * 개인이 신청할 수 있는 `사용자구분`.
+ *
+ * **이건 프로필 조건이 아니라 서비스 범위 조건이다** — PRD §4가 타겟을 "수도권 거주 개인"으로
+ * 못박았으므로 수도권 필터와 같은 층위다. 그래서 프로필 값을 보지 않는다.
+ *
+ * `소상공인`을 빼면 안 된다. 이 프로젝트의 출발점이 AI 지원사업이고 그 대다수가 사업자 대상이다 (PRD §9.3).
+ * `가구`도 개인이 세대를 대표해 신청한다.
+ *
+ * 실측(28세·서울·기본분야 2개, 888건): `법인/시설/단체` 전용이 **271건(30.5%)**.
+ * 개인이 신청 자체를 할 수 없는 공고라 §1.2의 불만 #1 "지원도 못하고"에 정확히 해당한다.
+ */
+const INDIVIDUAL_AUDIENCES = ["개인", "소상공인", "가구"];
 
 /** JA0111 = 120은 상한 없음이다. 실측에서 가장 흔한 값이라 그대로 읽으면 대량 오판이 난다 (§2.1.3) */
 const NO_AGE_LIMIT = 120;
@@ -54,16 +83,14 @@ const NO_AGE_LIMIT = 120;
 const AGE_SLACK = 1;
 
 /** 그룹별 '해당사항없음' 코드 = 그 그룹은 제한 없음 (§5.0) */
-const ANY_CODE: Partial<Record<CodeGroup, string>> = {
+const ANY_CODE: Partial<Record<CheckedGroup, string>> = {
   situation: "JA0322",
-  household: "JA0410",
 };
 
-const GROUP_LABEL: Record<CodeGroup, string> = {
+const GROUP_LABEL: Record<CheckedGroup, string> = {
   gender: "성별",
   income: "소득",
   situation: "개인 상황",
-  household: "가구 상황",
   business: "사업자 상황",
 };
 
@@ -116,10 +143,18 @@ export function checkGate(
     blockers.push(`시군구 조건 불일치 (정책 대상 ${policy.region_sigungu})`);
   }
 
+  // 사용자구분 — 값이 없으면(온통청년 전체, 정부24 일부) 검사하지 않는다. 모르면 통과다.
+  if (
+    policy.audiences.length > 0 &&
+    !policy.audiences.some((a) => INDIVIDUAL_AUDIENCES.includes(a))
+  ) {
+    blockers.push(`신청 대상 불일치 (${policy.audiences.join("·")} 대상, 개인은 신청할 수 없습니다)`);
+  }
+
+  // household은 일부러 없다 — CheckedGroup 주석 참고. profile.household는 AI 프롬프트로만 간다
   checkCodeGroup(blockers, codes, "gender", toCodes(profile.gender));
   checkCodeGroup(blockers, codes, "income", toCodes(profile.income_bracket));
   checkCodeGroup(blockers, codes, "situation", profile.situations);
-  checkCodeGroup(blockers, codes, "household", profile.household);
   checkCodeGroup(blockers, codes, "business", toCodes(profile.business_status));
 
   return blockers.length === 0 ? { pass: true } : { pass: false, blockers };
@@ -132,7 +167,7 @@ export function checkGate(
 function checkCodeGroup(
   blockers: string[],
   codes: EligibilityCodes,
-  group: CodeGroup,
+  group: CheckedGroup,
   mine: string[],
 ): void {
   const required = codes[group] ?? [];

@@ -38,6 +38,7 @@ const BARE_POLICY: PolicyConditions = {
   is_nationwide: false,
   region_sidos: [],
   region_sigungu: null,
+  audiences: [],
   eligibility_codes: {},
 };
 
@@ -102,9 +103,19 @@ check(
   !passes(policy({ eligibility_codes: { situation: ["JA0321"] } }), prof({ situations: ["JA0320"] })),
   "개인상황 교집합 없음 → 불일치",
 );
+// 가구상황은 hard block에서 빼기로 했다 — 실측 근거는 gate.ts의 CheckedGroup 주석
+const HOMELESS_ONLY = policy({ eligibility_codes: { household: ["JA0412"] } });
 check(
-  passes(policy({ eligibility_codes: { household: ["JA0410"] } }), prof({ household: ["JA0412"] })),
-  "가구상황 JA0410(해당사항없음) → 제한 없음",
+  passes(HOMELESS_ONLY, prof({ household: ["JA0404"] })),
+  "무주택세대 대상 정책 + 1인가구 프로필 → 통과 (배타적인 축이 아니다)",
+);
+check(
+  blockersOf(HOMELESS_ONLY, prof({ household: ["JA0404"] })).length === 0,
+  "가구상황은 블로커를 만들지 않는다 — AI 판정으로 넘긴다",
+);
+check(
+  !passes(policy({ eligibility_codes: { situation: ["JA0327"] } }), prof({ situations: ["JA0326"] })),
+  "개인상황은 그대로 hard block — 구직자 대상 + 근로자 → 불일치",
 );
 check(
   passes(policy({ eligibility_codes: { unknown: { earnCndSeCd: "0043001" } } }), prof({ birth_year: 1998 })),

@@ -41,7 +41,7 @@ const ME: Profile = {
 type Row = PolicyConditions & { id: string; source: string; title: string; categories: string[] };
 
 const COLUMNS =
-  "id,source,title,age_min,age_max,is_nationwide,region_sidos,region_sigungu,eligibility_codes,categories";
+  "id,source,title,age_min,age_max,is_nationwide,region_sidos,region_sigungu,audiences,eligibility_codes,categories";
 
 async function fetchAll(): Promise<Row[]> {
   const rows: Row[] = [];
@@ -179,6 +179,76 @@ const variants: [string, Profile][] = [
 for (const [label, who] of variants) {
   const n = rows.filter((r) => checkGate(r, who, REF_YEAR).pass).length;
   console.log(`  ${label.padEnd(24)} ${String(n).padStart(6)}건  ${pct(n, rows.length).padStart(6)}`);
+}
+
+// ─── 5. 개인상황·가구 규칙의 '한계 효과' ─────────────────────
+// 정부24 공식 코드표 (docs/api/정부24_공공서비스정보API.md §개인 상황·가구 상황)
+const LABEL: Record<string, string> = {
+  JA0301: "예비부모/난임", JA0302: "임산부", JA0303: "출산/입양",
+  JA0313: "농업인", JA0314: "어업인", JA0315: "축산업인", JA0316: "임업인",
+  JA0317: "초등학생", JA0318: "중학생", JA0319: "고등학생", JA0320: "대학생/대학원생",
+  JA0322: "해당사항없음", JA0326: "근로자/직장인", JA0327: "구직자/실업자",
+  JA0328: "장애인", JA0329: "국가보훈대상자", JA0330: "질병/질환자",
+  JA0401: "다문화가족", JA0402: "북한이탈주민", JA0403: "한부모/조손가정",
+  JA0404: "1인가구", JA0410: "해당사항없음", JA0411: "다자녀가구",
+  JA0412: "무주택세대", JA0413: "신규전입", JA0414: "확대가족",
+};
+const label = (code: string) => LABEL[code] ?? code;
+
+/** 이 그룹만 빼고 게이트를 돌렸을 때 통과하는가 = 이 그룹이 '단독으로' 떨어뜨렸는가 */
+function blockedOnlyBy(row: Row, who: Profile, group: "situation" | "household"): boolean {
+  if (checkGate(row, who, REF_YEAR).pass) return false;
+  const codes = { ...row.eligibility_codes };
+  delete codes[group];
+  return checkGate({ ...row, eligibility_codes: codes }, who, REF_YEAR).pass;
+}
+
+for (const [scopeName, scope] of [
+  ["전체", rows],
+  ["1차 필터 + 분야 기본값", withCategory],
+] as [string, Row[]][]) {
+  const onlySituation = scope.filter((r) => blockedOnlyBy(r, ME, "situation"));
+  const onlyHousehold = scope.filter((r) => blockedOnlyBy(r, ME, "household"));
+  const passing = scope.filter((r) => checkGate(r, ME, REF_YEAR).pass).length;
+
+  console.log(`\n[${scopeName}] ${scope.length}건 중`);
+  console.log(`  게이트 통과                       ${passing}건`);
+  console.log(`  개인상황 때문에만 '아님'           ${onlySituation.length}건  ← 규칙을 풀면 이만큼이 AI로 넘어간다`);
+  console.log(`  가구상황 때문에만 '아님'           ${onlyHousehold.length}건`);
+
+  if (scopeName !== "전체") {
+    const freq = new Map<string, number>();
+    for (const r of onlySituation) {
+      for (const c of r.eligibility_codes.situation ?? []) {
+        freq.set(c, (freq.get(c) ?? 0) + 1);
+      }
+    }
+    console.log("  단독 탈락분의 정책 대상 코드 (상위 10)");
+    for (const [code, n] of [...freq].sort((a, b) => b[1] - a[1]).slice(0, 10)) {
+      console.log(`    ${String(n).padStart(4)}  ${label(code)}`);
+    }
+    console.log("  예시 3건");
+    for (const r of onlySituation.slice(0, 3)) {
+      const codes = (r.eligibility_codes.situation ?? []).map(label).join("·");
+      console.log(`    ${r.title.slice(0, 40)} — 대상: ${codes}`);
+    }
+
+    const hhFreq = new Map<string, number>();
+    for (const r of onlyHousehold) {
+      for (const c of r.eligibility_codes.household ?? []) {
+        hhFreq.set(c, (hhFreq.get(c) ?? 0) + 1);
+      }
+    }
+    console.log("  가구상황 단독 탈락분의 정책 대상 코드");
+    for (const [code, n] of [...hhFreq].sort((a, b) => b[1] - a[1])) {
+      console.log(`    ${String(n).padStart(4)}  ${label(code)}`);
+    }
+    console.log("  예시 3건");
+    for (const r of onlyHousehold.slice(0, 3)) {
+      const codes = (r.eligibility_codes.household ?? []).map(label).join("·");
+      console.log(`    ${r.title.slice(0, 40)} — 대상: ${codes}`);
+    }
+  }
 }
 
 function pct(n: number, total: number): string {
