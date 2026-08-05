@@ -75,17 +75,32 @@
 
 ## 작업 1 :: 스키마
 
-- [ ] `supabase/schema.sql` — `policies` / `profiles` / `verdicts` / `scraps` / `sync_runs`
-- [ ] **배열 컬럼 전부 `not null default '{}'`** — `region_sidos`, `region_codes`, `categories`, `audiences`, `situations`, `household`, `interests`, `blockers`
+- [x] `supabase/schema.sql` — `policies` / `profiles` / `verdicts` / `scraps` / `sync_runs`
+- [x] **배열 컬럼 전부 `not null default '{}'`** — `region_sidos`, `region_codes`, `categories`, `audiences`, `situations`, `household`, `interests`, `blockers`
   - nullable이면 `&&` 비교가 NULL을 반환해 **해당 행이 통째로 사라진다**
-- [ ] `policies.is_nationwide` / `region_sidos` / `region_sigungu` / `categories`
-- [ ] `policies.source_registered_at` + 인덱스 (정렬 기준)
-- [ ] `verdicts.decided_by`
-- [ ] `profiles.interests` 기본값 `'{job,housing}'`
-- [ ] RLS 5개 테이블 전부 ([§2.5](ARCHITECTURE.md))
-- [ ] `policies`에 클라이언트 write 정책을 **만들지 않았는지** 확인
+- [x] `policies.is_nationwide` / `region_sidos` / `region_sigungu` / `categories`
+- [x] `policies.source_registered_at` + 인덱스 (정렬 기준)
+- [x] `verdicts.decided_by`
+- [x] `profiles.interests` 기본값 `'{job,housing}'`
+- [x] RLS 5개 테이블 전부 ([§2.5](ARCHITECTURE.md))
+- [x] `policies`에 클라이언트 write 정책을 **만들지 않았는지** 확인 — `policies`·`sync_runs` 둘 다 SELECT 정책만 존재
 
-**완료 판정**: anon key로 `policies` INSERT 시도 → 거부. 다른 세션의 `profiles` 조회 → 0행.
+**완료 판정** ✅ **통과 (8/6)** — 실제 HTTP 호출로 11개 항목 검증
+
+| 검사 | 결과 |
+|---|---|
+| anon key + 세션으로 `policies` INSERT | 403 거부 |
+| anon key만으로 `policies` INSERT | 401 거부 |
+| 세션 없이 `policies` SELECT | 200 허용 (시크릿 창에서도 목록이 보여야 한다) |
+| anon key로 `sync_runs` INSERT | 403 거부 |
+| **다른 세션의 `profiles` 조회** | **0행** |
+| 남의 `id`로 `profiles` 쓰기 (`with check`) | 403 거부 |
+| `interests` 기본값 | `["job","housing"]` |
+| 배열 컬럼이 null이 아닌 빈 배열 | `[]` |
+
+> 스키마 적용은 Supabase Management API(`/database/query`)로 했다. CLI `db push`는 마이그레이션 디렉터리와
+> **DB 비밀번호**를 따로 요구하는데, `SUPABASE_ACCESS_TOKEN` 하나로 끝나는 쪽이 단순하다.
+> `schema.sql`은 여러 번 돌려도 안전하게 썼다 (`create ... if not exists` / `drop policy if exists`).
 
 ---
 
