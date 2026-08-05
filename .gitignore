@@ -43,3 +43,6 @@ next-env.d.ts
 
 # vercel link가 .vercel / .env* 를 여기에 다시 덧붙인다. 지워도 된다 —
 # 위쪽에 이미 있고, !.env.example 뒤에 .env* 가 오면 템플릿이 무시된다.
+
+# 모델 평가 원본 결과 (생성물)
+scripts/.model-eval-raw.json

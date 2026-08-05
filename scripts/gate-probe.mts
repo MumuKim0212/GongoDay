@@ -70,9 +70,12 @@ function passesSqlFilter(p: Row, age: number, sido: string, sigungu: string | nu
   return sidoOk && sigunguOk && minOk && maxOk;
 }
 
-/** 게이트에서 나이·지역만 떼어 본다 — SQL과 비교하려면 같은 조건만 봐야 한다 */
+/**
+ * 게이트에서 나이·지역만 떼어 본다 — SQL과 비교하려면 같은 조건만 봐야 한다.
+ * `audiences`도 비운다. 사용자구분은 SQL 1차 필터에 없는 조건이라 섞이면 비교가 무의미해진다.
+ */
 function gateRegionAgeOnly(p: Row, who: Profile): boolean {
-  const stripped: PolicyConditions = { ...p, eligibility_codes: {} };
+  const stripped: PolicyConditions = { ...p, audiences: [], eligibility_codes: {} };
   return checkGate(stripped, who, REF_YEAR).pass;
 }
 
@@ -195,6 +198,21 @@ const LABEL: Record<string, string> = {
 };
 const label = (code: string) => LABEL[code] ?? code;
 
+/**
+ * 게이트에서 뺀 가구상황 규칙(§5.0.2)을 재현한다.
+ *
+ * 빼버린 규칙은 0건으로만 나오므로, "그 규칙을 유지했다면 얼마를 잃었나"를 측정할 수 없다.
+ * 데이터가 바뀌어도 결정 근거를 다시 확인할 수 있게 반대사실을 여기서 계산한다.
+ */
+function householdWouldBlock(row: Row, who: Profile): boolean {
+  const required = row.eligibility_codes.household ?? [];
+  if (required.length === 0) return false;
+  if (row.eligibility_codes.no_limit?.includes("household")) return false;
+  if (required.includes("JA0410")) return false;
+  if (who.household.length === 0) return false;
+  return !who.household.some((code) => required.includes(code));
+}
+
 /** 이 그룹만 빼고 게이트를 돌렸을 때 통과하는가 = 이 그룹이 '단독으로' 떨어뜨렸는가 */
 function blockedOnlyBy(row: Row, who: Profile, group: "situation" | "household"): boolean {
   if (checkGate(row, who, REF_YEAR).pass) return false;
@@ -211,10 +229,30 @@ for (const [scopeName, scope] of [
   const onlyHousehold = scope.filter((r) => blockedOnlyBy(r, ME, "household"));
   const passing = scope.filter((r) => checkGate(r, ME, REF_YEAR).pass).length;
 
+  // 반대사실: 지금 통과하는 것 중, 옛 가구상황 규칙이면 '아님'이 됐을 건수
+  const savedByChange = scope.filter(
+    (r) => checkGate(r, ME, REF_YEAR).pass && householdWouldBlock(r, ME),
+  );
+  const exclusiveSituation = onlySituation.filter((r) =>
+    (r.eligibility_codes.situation ?? []).includes("JA0327"),
+  );
+
   console.log(`\n[${scopeName}] ${scope.length}건 중`);
   console.log(`  게이트 통과                       ${passing}건`);
   console.log(`  개인상황 때문에만 '아님'           ${onlySituation.length}건  ← 규칙을 풀면 이만큼이 AI로 넘어간다`);
-  console.log(`  가구상황 때문에만 '아님'           ${onlyHousehold.length}건`);
+  console.log(`    그중 구직자/실업자 대상          ${exclusiveSituation.length}건 (정당한 배제)`);
+  console.log(`    잔여 오판 위험 상한             ${onlySituation.length - exclusiveSituation.length}건  ${pct(onlySituation.length - exclusiveSituation.length, scope.length)}`);
+  console.log(`  가구상황 때문에만 '아님'           ${onlyHousehold.length}건 (규칙을 뺐으므로 0)`);
+  console.log(`  ★ 옛 가구상황 규칙이면 잃었을 건수  ${savedByChange.length}건`);
+  if (scopeName !== "전체") {
+    const freq = new Map<string, number>();
+    for (const r of savedByChange) {
+      for (const c of r.eligibility_codes.household ?? []) freq.set(c, (freq.get(c) ?? 0) + 1);
+    }
+    for (const [code, n] of [...freq].sort((a, b) => b[1] - a[1])) {
+      console.log(`      ${String(n).padStart(4)}  ${label(code)}`);
+    }
+  }
 
   if (scopeName !== "전체") {
     const freq = new Map<string, number>();
