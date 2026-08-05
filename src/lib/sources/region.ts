@@ -3,6 +3,7 @@
  *
  * 소스마다 세밀도가 다르다. 온통청년은 시도까지, 정부24는 시군구까지.
  */
+import { SIGUNGU_TO_SIDO } from "./regions.generated";
 
 /**
  * 시도 코드 → 이름. **온통청년 전량 2,698건에서 도출한 결과다** (§2.6.1 / 검증기록 §7.2).
@@ -105,7 +106,7 @@ export function gov24Region(orgName: unknown, orgType: unknown): RegionFields {
 
   const name = String(orgName ?? "").trim();
   const hit = SIDO_PREFIXES.find(([sidoName]) => name.startsWith(sidoName));
-  if (!hit) return none;
+  if (!hit) return fallback(name);
 
   const [sidoName, code] = hit;
   const rest = name.slice(sidoName.length);
@@ -124,4 +125,40 @@ export function gov24Region(orgName: unknown, orgType: unknown): RegionFields {
     region_sigungu: sigungu,
     region_codes: [],
   };
+}
+
+/**
+ * 접두사 매칭이 실패했을 때 — 기관명 **안쪽**에서 지역명을 찾는다.
+ *
+ * 실측: 접두사만으로는 비중앙 9,911건 중 1,528건(15.4%)이 판별되지 않는다.
+ * `공공기관` 100% · `지방출자_출연기관` 82% · `지방공기업` 79.5%가 여기 걸린다.
+ * 그런데 그중 상당수는 `용산구시설관리공단`·`재단법인경기도시장상권진흥원`처럼
+ * **지역명이 접두사가 아닌 위치에** 들어 있다.
+ *
+ * **오탐은 정책을 숨긴다.** '전국'에서 '특정 지역 전용'으로 바뀌면 다른 지역 사용자에게
+ * 안 보이게 되므로(PRD §7.5 위반), 규칙을 좁게 잡는다.
+ *
+ * 1. **정식 명칭만** 쓴다. `서울`·`충북` 같은 약칭까지 넓히면
+ *    `서울올림픽기념국민체육진흥공단`(전국 기관)이 서울 전용이 된다
+ * 2. **여러 시도에 겹치는 시군구 이름은 제외**한다 (중구·동구·남구·북구·서구·강서구·고성군).
+ *    `regions.generated.ts`가 이미 걸러서 내보낸다
+ * 3. **긴 이름 먼저** — `남양주시`가 `양주시`보다 먼저 걸려야 한다
+ * 4. **시군구를 시도보다 먼저** 본다. `(재)인천광역시부평구문화재단`은 부평구가 더 정확하다
+ *
+ * 전량 1,528건에 적용해 96개 기관 406건을 회수했고, 96개를 전수 확인해 오탐은 0건이었다.
+ * 나머지 1,122건은 `대한법률구조공단`·`기술보증기금` 등 실제 전국 기관이라 그대로 둔다.
+ */
+function fallback(name: string): RegionFields {
+  const sg = SIGUNGU_TO_SIDO.find(([sigunguName]) => name.includes(sigunguName));
+  if (sg) {
+    return { is_nationwide: false, region_sidos: [sg[1]], region_sigungu: sg[0], region_codes: [] };
+  }
+
+  const sd = SIDO_PREFIXES.find(([sidoName]) => name.includes(sidoName));
+  if (sd) {
+    return { is_nationwide: false, region_sidos: [sd[1]], region_sigungu: null, region_codes: [] };
+  }
+
+  // 지역을 못 찾으면 전국으로 둔다 — 모르는 것을 '아님'으로 만들지 않는다 (§5.0)
+  return { is_nationwide: true, region_sidos: [], region_sigungu: null, region_codes: [] };
 }
