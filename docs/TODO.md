@@ -41,29 +41,26 @@
 
 ## 작업 0.5 :: 프로젝트 셋업 + 세션 ★ 1과 병렬
 
-- [ ] `create-next-app` (TypeScript, App Router, Tailwind, **`src/` 사용**)
+- [x] `create-next-app` (TypeScript, App Router, Tailwind, **`src/` 사용**) — Next **16.3.0** / React 19.2 / Tailwind 4
 
-  > ⚠️ **`.env.local` / `.env.example`이 있으면 `create-next-app .`이 "디렉터리가 비어있지 않다"며 거부한다.**
-  > (`docs/`와 `.gitignore`는 허용 목록이라 문제없다. `.env*`만 걸린다.)
-  >
-  > ```powershell
-  > New-Item -ItemType Directory _envtmp
-  > Move-Item .env.local, .env.example _envtmp
-  > npx create-next-app@latest . --typescript --tailwind --app --src-dir --eslint
-  > Move-Item _envtmp\* .
-  > Remove-Item _envtmp
-  > ```
+  > ⚠️ 실제로 걸린 것이 두 개 더 있었다.
+  > 1. **허용 목록에 없는 것은 `.env*` 말고도 `.claude/`가 있다.** 대피 폴더도 프로젝트 밖에 만들어야 한다 (안에 만들면 그게 또 충돌한다)
+  > 2. **디렉터리명 `GongoDay`의 대문자가 npm 패키지명 규칙에 걸려 `.`으로는 생성이 아예 안 된다.**
+  >    → 소문자 임시 폴더에 `--skip-install`로 만들고 옮긴 뒤, `package.json`의 `name`을 `gongoday`로 고치고 설치했다.
 
-- [ ] Supabase 프로젝트 생성 + **익명 로그인(Anonymous Sign-Ins) 활성화**
-- [ ] `.env.local`에 Supabase 3개 키 추가 (나머지 3개는 이미 있음)
-- [ ] **create-next-app이 만든 `.gitignore`가 `!.env.example`을 덮지 않는지 확인**
+- [x] Supabase 프로젝트 생성 + **익명 로그인(Anonymous Sign-Ins) 활성화** (8/5)
+- [x] `.env.local`에 Supabase 3개 키 추가 (나머지 3개는 이미 있음)
+- [x] **create-next-app이 만든 `.gitignore`가 `!.env.example`을 덮지 않는지 확인** — `.env*` 다음 줄에 `!.env.example` 추가함
 - [ ] Vercel 프로젝트 연결 + 환경변수 6개 등록 (**첫날에 해둔다**)
-- [ ] **`@supabase/ssr` + `middleware.ts`로 세션 쿠키 갱신** ([§1.1](ARCHITECTURE.md))
-- [ ] 첫 방문 시 `signInAnonymously()` 자동 호출
+- [x] **`@supabase/ssr` + `proxy.ts`로 세션 쿠키 갱신** ([§1.1](ARCHITECTURE.md))
+  - > **Next 16에서 `middleware.ts` → `proxy.ts`로 이름이 바뀌었다.** export 이름도 `proxy`, 기본 런타임은 Node.js
+- [x] 첫 방문 시 `signInAnonymously()` 자동 호출 — **브라우저가 아니라 `proxy.ts`에서** 부른다 ([§1.1](ARCHITECTURE.md))
 
 **완료 판정 (둘 다)**
 1. 빈 페이지가 Vercel URL로 열린다
 2. **서버 컴포넌트에서 `auth.uid()`가 값을 반환한다** ← 안 되면 1차 필터도 RLS도 조용히 안 먹는다. **여기서 막히면 다음으로 넘어가지 말 것**
+   - [x] **로컬 통과** (8/5). 첫 요청부터 `role=authenticated`, `sub`=user.id. 같은 쿠키 → 같은 uid, 다른 쿠키 → 다른 uid
+   - > `getUser()`가 값을 준다고 끝이 아니다. Postgres의 `auth.uid()`는 액세스 토큰 클레임에서 나오므로 **`role`이 `authenticated`인지**까지 봐야 한다
 
 ---
 

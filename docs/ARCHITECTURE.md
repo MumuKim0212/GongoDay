@@ -43,10 +43,15 @@
 목록 화면이 **서버 컴포넌트에서 프로필을 읽어 SQL 1차 필터를 건다**(§5.0.1). 브라우저에서만 `signInAnonymously()`를 호출해서는 서버가 세션을 못 본다.
 
 ```
-@supabase/ssr  +  middleware.ts (세션 쿠키 갱신)
-   ├─ 브라우저: signInAnonymously() → 쿠키에 세션 기록
+@supabase/ssr  +  src/proxy.ts (세션 쿠키 갱신 + 첫 방문 익명 로그인)
+   ├─ proxy: 세션이 없으면 signInAnonymously() → 쿠키에 세션 기록
    └─ 서버 컴포넌트 / 라우트 핸들러: 쿠키에서 세션 복원 → auth.uid()
 ```
+
+> **Next 16에서 `middleware.ts`가 `proxy.ts`로 이름이 바뀌었다** (export 이름도 `proxy`). 동작은 같고, 기본 런타임이 Node.js다.
+>
+> **익명 로그인을 브라우저가 아니라 proxy에서 한다.** 브라우저에서 호출하면 첫 서버 렌더가 세션 없이 끝나서
+> 그 요청의 1차 필터가 프로필을 못 읽는다. proxy에서 만들면 **첫 렌더부터** `auth.uid()`가 잡힌다.
 
 **이 설정이 빠지면 서버에서 `auth.uid()`가 항상 null이고, 1차 필터도 RLS도 조용히 동작하지 않는다.** 로그인 화면이 없어 증상이 늦게 드러나므로 구현 초반에 먼저 확인한다.
 
@@ -368,7 +373,7 @@ order by 1;
 
 ```
 src/
-  middleware.ts                  세션 쿠키 갱신 (§1.1) — 빠뜨리면 조용히 망가진다
+  proxy.ts                       세션 쿠키 갱신 + 익명 로그인 (§1.1) — 빠뜨리면 조용히 망가진다
   app/
     page.tsx                     목록 (홈) — 서버 컴포넌트
     PolicyListClient.tsx         판정 버튼 · 필터 상태 (클라이언트)
@@ -728,7 +733,7 @@ export function locateQuote(sourceText: string, quote: string):
 작업 0    온통청년 검증                                    ✅ 완료
 작업 0-B  정부24 검증                                      ✅ 완료
    │
-   ├─ 0.5 셋업 + middleware + 익명 세션    ← 3·4보다 먼저
+   ├─ 0.5 셋업 + proxy + 익명 세션         ← 3·4보다 먼저
    │
    ├─ 1  supabase/schema.sql + 적용
    │        │
