@@ -51,16 +51,25 @@
 - [x] Supabase 프로젝트 생성 + **익명 로그인(Anonymous Sign-Ins) 활성화** (8/5)
 - [x] `.env.local`에 Supabase 3개 키 추가 (나머지 3개는 이미 있음)
 - [x] **create-next-app이 만든 `.gitignore`가 `!.env.example`을 덮지 않는지 확인** — `.env*` 다음 줄에 `!.env.example` 추가함
-- [ ] Vercel 프로젝트 연결 + 환경변수 6개 등록 (**첫날에 해둔다**)
+- [x] Vercel 프로젝트 연결 + 환경변수 6개 등록 (**첫날에 해둔다**) — https://gongoday.vercel.app
+  - > ⚠️ **새 프로젝트는 Deployment Protection(Vercel Authentication)이 기본 ON이다.** 익명 접속이 `vercel.com/login`으로
+    > 튕겨 REQ-04가 깨진다. `npx vercel project protection disable gongoday --sso` 로 껐다 (`ssoProtection: null` 확인).
+  - > ⚠️ **`vercel link`가 `.gitignore` 끝에 `.vercel`·`.env*`를 CRLF로 덧붙인다.** git이 `\r`을 패턴에 포함해 읽어
+    > 지금은 무해하지만, 개행이 LF로 정규화되면 `!.env.example`보다 뒤에 와서 템플릿이 조용히 무시된다.
+    > **`vercel link`/`vercel env pull`을 다시 돌리면 또 붙으니 그때마다 지운다.**
 - [x] **`@supabase/ssr` + `proxy.ts`로 세션 쿠키 갱신** ([§1.1](ARCHITECTURE.md))
   - > **Next 16에서 `middleware.ts` → `proxy.ts`로 이름이 바뀌었다.** export 이름도 `proxy`, 기본 런타임은 Node.js
 - [x] 첫 방문 시 `signInAnonymously()` 자동 호출 — **브라우저가 아니라 `proxy.ts`에서** 부른다 ([§1.1](ARCHITECTURE.md))
 
-**완료 판정 (둘 다)**
-1. 빈 페이지가 Vercel URL로 열린다
-2. **서버 컴포넌트에서 `auth.uid()`가 값을 반환한다** ← 안 되면 1차 필터도 RLS도 조용히 안 먹는다. **여기서 막히면 다음으로 넘어가지 말 것**
-   - [x] **로컬 통과** (8/5). 첫 요청부터 `role=authenticated`, `sub`=user.id. 같은 쿠키 → 같은 uid, 다른 쿠키 → 다른 uid
-   - > `getUser()`가 값을 준다고 끝이 아니다. Postgres의 `auth.uid()`는 액세스 토큰 클레임에서 나오므로 **`role`이 `authenticated`인지**까지 봐야 한다
+**완료 판정 (둘 다)** ✅ **통과 (8/5)** — 로컬 · https://gongoday.vercel.app 양쪽에서 확인
+
+1. [x] 빈 페이지가 Vercel URL로 열린다 — 쿠키 없이 HTTP 200, 리다이렉트 0회
+2. [x] **서버 컴포넌트에서 `auth.uid()`가 값을 반환한다** ← 안 되면 1차 필터도 RLS도 조용히 안 먹는다
+   - 첫 요청부터 `role=authenticated` / `sub`=user.id
+   - 같은 쿠키로 3회 → 같은 uid (요청마다 새 유저를 만들지 않는다)
+   - 다른 쿠키 항아리 → 다른 uid (세션 격리)
+   - > `getUser()`가 값을 준다고 끝이 아니다. Postgres의 `auth.uid()`는 액세스 토큰 클레임에서 나오므로
+     > **`role`이 `authenticated`인지**까지 봐야 1차 필터·RLS가 돈다고 말할 수 있다.
 
 ---
 
