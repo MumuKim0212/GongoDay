@@ -240,6 +240,8 @@ function SyncCard({ status: s }: { status: SyncStatus }) {
       </div>
 
       <dl className="mt-2 space-y-1 text-sm">
+        {/* 사용자 화면 푸터가 두 소스 중 나중 것 하나만 보여준다 — 소스별 내역은 여기가 유일하다 */}
+        <Field label="마지막 전량 갱신" value={time(s.lastFullAt)} />
         <Field label="마지막 성공" value={time(s.lastSuccessAt)} />
         <Field label="마지막 실행" value={time(s.startedAt ?? null)} />
         {/* 수집은 한 번에 10페이지씩 끊어 돌므로 전체 건수가 아니라 '그 실행이 처리한 양'이다 */}

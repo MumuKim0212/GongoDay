@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { CATEGORIES, CATEGORY_LABELS } from "@/lib/sources/category";
+import { lastFullSync } from "@/lib/sync/last-full";
 import { scoreLabel, scoreOf, type Score } from "@/lib/verdict/score";
 import { CAPITAL_AREA_SIDOS, SIDO_NAMES } from "@/lib/sources/region";
 
@@ -52,6 +53,11 @@ export type SyncStatus = {
   error: string | null;
   /** 마지막 **성공** 시각. 실패한 실행이 "갱신됨"으로 읽히면 안 된다 */
   lastSuccessAt: string | null;
+  /**
+   * 마지막 **전량** 갱신 시각 — 끝까지 받고 `last_page`가 0으로 돌아간 실행만.
+   * 사용자 화면 푸터가 두 소스 중 하나를 골라 쓰는 값이 이것이다.
+   */
+  lastFullAt: string | null;
   runCount: number;
 };
 
@@ -294,11 +300,16 @@ async function verdictCounts(db: SupabaseClient): Promise<AdminStats["verdicts"]
  * 소스 × (최신 / 최신 성공)으로 쿼리를 네 번 던질 이유가 없다.
  */
 async function syncStatus(db: SupabaseClient): Promise<SyncStatus[]> {
-  const { data } = await db
-    .from("sync_runs")
-    .select("source, started_at, finished_at, last_page, fetched_count, upserted_count, error")
-    .order("started_at", { ascending: false })
-    .limit(100);
+  // 완주 시각은 따로 묻는다. 최근 100건 창 안에 정부24 완주가 없을 수 있어서다 —
+  // 매시간 트리거면 이 창이 이틀치밖에 안 되고, 정부24는 11시간에 한 번만 완주한다.
+  const [{ data }, full] = await Promise.all([
+    db
+      .from("sync_runs")
+      .select("source, started_at, finished_at, last_page, fetched_count, upserted_count, error")
+      .order("started_at", { ascending: false })
+      .limit(100),
+    lastFullSync(db),
+  ]);
 
   const runs = (data ?? []) as Array<{
     source: string;
@@ -324,6 +335,7 @@ async function syncStatus(db: SupabaseClient): Promise<SyncStatus[]> {
       upserted: last?.upserted_count ?? 0,
       error: last?.error ?? null,
       lastSuccessAt: success?.finished_at ?? null,
+      lastFullAt: full[source],
       runCount: mine.length,
     };
   });

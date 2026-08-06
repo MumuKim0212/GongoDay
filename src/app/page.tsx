@@ -6,6 +6,7 @@ import { PolicyList } from "@/components/PolicyList";
 import { CATEGORIES, DEFAULT_CATEGORIES, type Category } from "@/lib/sources/category";
 import { PAGE_SIZE, defaultFilters, fetchPolicies, type ListFilters } from "@/lib/policies/query";
 import { createClient } from "@/lib/supabase/server";
+import { lastFullSync } from "@/lib/sync/last-full";
 import type { Profile } from "@/lib/verdict/gate";
 import { SIGNATURE_COLUMNS, profileSignature } from "@/lib/verdict/signature";
 import type { DecidedVerdict } from "@/lib/verdict/validate";
@@ -64,7 +65,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
       profile === null ? null : profileSignature(profile),
       rows.map((r) => r.id),
     ),
-    fetchLastSync(supabase),
+    lastFullSync(supabase),
   ]);
 
   const lastPage = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE));
@@ -93,11 +94,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
           {profile ? "내 조건 수정" : "내 조건 입력하기"}
         </Link>
       </section>
-
-      {/* 한 소스만 수집됐어도 있는 것만 보여준다 (§7) */}
-      <p className="text-micro text-muted mt-2">
-        마지막 전량 갱신 · 온통청년 {syncedAt.youth ?? "없음"} · 정부24 {syncedAt.gov24 ?? "없음"}
-      </p>
 
       <p className="text-small text-muted mt-3">
         {filters.showAll ? (
@@ -167,8 +163,48 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
       {lastPage > 1 && rows.length > 0 ? (
         <Pager page={filters.page} lastPage={lastPage} sp={sp} />
       ) : null}
+
+      <SyncFooter at={latestOf(syncedAt)} />
     </main>
   );
+}
+
+/**
+ * 갱신 시각은 한 줄로만 알린다 (F-05). **소스별 내역은 운영 화면에 있다** —
+ * 사용자에게 필요한 것은 "이 목록이 언제 것인가"뿐이고, 어느 소스가 어디까지 받았는지는 운영 정보다.
+ *
+ * 구분선이 아니라 여백으로 나눈다 (원칙 1).
+ */
+function SyncFooter({ at }: { at: string | null }) {
+  // 완주 기록이 없으면 줄 자체를 내지 않는다. 빈 목록 안내가 이미 상황을 말한다.
+  if (at === null) return null;
+
+  return <footer className="text-micro text-muted mt-8">마지막 공고 갱신시간 — {at}</footer>;
+}
+
+/**
+ * 두 소스 중 **나중** 시각. 한 줄로만 적으므로 둘 중 하나를 골라야 한다.
+ *
+ * 온통청년이 3시간, 정부24가 11시간에 한 바퀴라 보통 온통청년 쪽이 뽑힌다.
+ * 더 보수적으로 말하려면 `Math.min`이다 — 그러면 "두 소스 다 이 시각까지는 받았다"가 된다.
+ */
+function latestOf(at: { youth: string | null; gov24: string | null }): string | null {
+  const times = [at.youth, at.gov24].filter((v): v is string => v !== null);
+  if (times.length === 0) return null;
+
+  const latest = new Date(Math.max(...times.map((t) => new Date(t).getTime())));
+  // ⚠️ 서버 시간대는 UTC다. 빼먹으면 배포에서만 9시간 어긋난 시각이 나간다 (admin `time()`과 같은 이유).
+  const zone = { timeZone: "Asia/Seoul" } as const;
+  const hhmm = latest.toLocaleTimeString("ko-KR", {
+    ...zone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  // 오늘이면 시각만. 어제 것을 "04:20"이라고만 적으면 방금 받은 것처럼 읽힌다.
+  const day = latest.toLocaleDateString("ko-KR", zone);
+  return day === new Date().toLocaleDateString("ko-KR", zone) ? hhmm : `${day} ${hhmm}`;
 }
 
 /**
@@ -208,38 +244,6 @@ async function fetchVerdicts(
   for (const row of data ?? []) {
     const { policy_id, ...v } = row as unknown as { policy_id: string } & DecidedVerdict;
     out[policy_id] = v;
-  }
-  return out;
-}
-
-/**
- * 소스별 마지막 **전량** 갱신 시각 (F-05). 실패한 실행은 "갱신됨"으로 읽히면 안 되므로 제외한다.
- *
- * ⚠️ **`last_page = 0`(= 끝까지 받은 실행)만 읽어야 한다.** 수집은 매시간 10페이지씩 끊어 도는데,
- * 그 중간 실행까지 세면 정부24 뒷페이지가 11시간 전 것인데도 화면은 **매시간 "방금 갱신됨"**이라고
- * 말하게 된다.
- */
-async function fetchLastSync(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-): Promise<{ youth: string | null; gov24: string | null }> {
-  const { data } = await supabase
-    .from("sync_runs")
-    .select("source, finished_at")
-    .is("error", null)
-    .not("finished_at", "is", null)
-    .eq("last_page", 0)
-    .order("finished_at", { ascending: false })
-    .limit(50);
-
-  const out: { youth: string | null; gov24: string | null } = { youth: null, gov24: null };
-  for (const r of data ?? []) {
-    const key = r.source as "youth" | "gov24";
-    if (key in out && out[key] === null) {
-      out[key] = new Date(r.finished_at as string).toLocaleString("ko-KR", {
-        dateStyle: "short",
-        timeStyle: "short",
-      });
-    }
   }
   return out;
 }
