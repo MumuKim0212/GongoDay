@@ -21,17 +21,17 @@ export default async function ProfilePage() {
     : { data: null, error: null };
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-8">
-      <Link href="/" className="text-sm text-gray-600 underline-offset-2 hover:underline dark:text-gray-400">
+    <main className="max-w-read mx-auto w-full px-4 py-8">
+      <Link href="/" className="btn btn-ghost px-0">
         ← 목록으로
       </Link>
 
       <header className="mt-3">
-        <h1 className="text-2xl font-bold">내 조건</h1>
-        <p className="mt-1 text-gray-700 dark:text-gray-300">
+        <h1 className="text-title">내 조건</h1>
+        <p className="text-body mt-2">
           <strong>모두 선택 사항입니다.</strong> 채울수록 정확해지고, 생년과 사는 곳만으로도 동작합니다.
         </p>
-        <p className="mt-0.5 text-sm text-gray-600 dark:text-gray-400">
+        <p className="text-small text-muted mt-1">
           비워둔 항목은 조건으로 보지 않습니다 — 그 항목 때문에 정책이 걸러지는 일은 없습니다.
         </p>
       </header>
@@ -55,11 +55,12 @@ export default async function ProfilePage() {
   );
 }
 
+/** 목록·상세의 빈 상태와 같은 형태다 — 상자를 두르지 않는다 (§4.7) */
 function Notice({ title, body }: { title: string; body: string }) {
   return (
-    <div className="mt-6 rounded border border-gray-200 p-4 dark:border-gray-800">
-      <p className="font-medium">{title}</p>
-      <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{body}</p>
+    <div className="py-8">
+      <p className="text-sub">{title}</p>
+      <p className="text-small text-muted mt-1">{body}</p>
     </div>
   );
 }

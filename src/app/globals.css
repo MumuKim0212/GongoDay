@@ -72,6 +72,10 @@
   --quiet-border: var(--bs-neutral-400);
   --quiet-fg: var(--bs-neutral-700);
 
+  /* 오류 잉크 (§4.8). **이 시스템에 빨강은 없다** — 마젠타가 두 번째 스팟이고,
+     본문 크기로 읽히려면 램프의 깊은 단이어야 한다 (6.5:1). */
+  --danger: var(--bs-accent-2-700);
+
   /* 읽어야 하는 보조 텍스트는 `--muted`(5.8:1)까지만. `--faint`는 3.6:1이라 장식용이다 (§6.1). */
   --muted: color-mix(in srgb, var(--ink) 70%, transparent);
   --faint: color-mix(in srgb, var(--ink) 55%, transparent);
@@ -113,6 +117,7 @@
     --tint-neutral-fg: var(--bs-neutral-200);
     --quiet-border: var(--bs-neutral-700);
     --quiet-fg: var(--bs-neutral-400);
+    --danger: var(--bs-accent-2-300);
 
     /* 어두운 바탕에서 그림자는 어둠으로 안 보인다. 헤어라인 + 주변 어둠으로 바꾼다 (§2.2). */
     --shadow-paper-sm: 0 0 0 1px rgb(243 242 242 / 0.1), 0 1px 2px rgb(0 0 0 / 0.4);
@@ -136,6 +141,7 @@
   --color-accent-ink: var(--accent-ink);
   --color-accent-on: var(--accent-on);
   --color-accent-2: var(--accent-2);
+  --color-danger: var(--danger);
 
   --font-heading: var(--serif);
   --font-body: var(--serif);
@@ -374,6 +380,41 @@
   }
   .tag-btn.tag-solid:hover {
     background: var(--accent-hover);
+  }
+
+  /*
+   * 선택 칩 (§5.3 · §8-3 결정) — `.tag .tag-btn .tag-outline .chip` 조합으로 쓴다.
+   *
+   * 목록의 분야 칩과 **같은 모습이어야 한다.** 같은 것을 고르는 컨트롤이 화면마다 다르게
+   * 생기면 사용자는 다른 기능으로 읽는다. 다만 저쪽은 `<button>`+JS 상태고 이쪽은
+   * **비제어 네이티브 입력**이다 — 저장이 실패해 폼이 다시 그려져도 고른 값이 남아야 하므로
+   * React 상태로 올릴 수 없다. 그래서 켜짐/꺼짐을 `:has(input:checked)`로 CSS가 판단한다.
+   *
+   * `::before`의 ✓는 장식이 아니라 색을 못 보는 사용자를 위한 두 번째 단서다 (§6.2).
+   */
+  .chip input {
+    position: absolute;
+    width: 0;
+    height: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .chip:has(input:checked) {
+    background: var(--accent-ink);
+    border-color: var(--accent-ink);
+    color: var(--accent-on);
+  }
+  .chip:has(input:checked)::before {
+    content: "✓";
+  }
+  .chip:has(input:checked):hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+  /* 입력을 숨겼으므로 포커스 링을 라벨이 대신 받는다 — 안 그러면 키보드로 위치를 알 수 없다 */
+  .chip:has(input:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   /* ── 입력칸 ───────────────────────────────────────────────────────── */

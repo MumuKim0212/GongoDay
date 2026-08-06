@@ -49,6 +49,7 @@ export function ProfileForm({ initial }: { initial: ProfileValues | null }) {
   return (
     <form action={formAction} className="mt-6 space-y-7">
       <Section legend="생년">
+        {/* `--spacing` 확대로 160px까지 벌어졌던 것을 되돌린다 — 네 자리 연도에 그만한 폭은 없다 (§8-2) */}
         <input
           type="number"
           name="birth_year"
@@ -57,7 +58,7 @@ export function ProfileForm({ initial }: { initial: ProfileValues | null }) {
           max={new Date().getFullYear()}
           placeholder="예: 1998"
           aria-label="생년"
-          className="w-32 rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+          className="input w-24"
         />
         <Hint>연도만 받습니다. 나이 조건은 앞뒤로 1년 여유를 두고 봅니다.</Hint>
       </Section>
@@ -76,7 +77,7 @@ export function ProfileForm({ initial }: { initial: ProfileValues | null }) {
               setSigungu(""); // 시도가 바뀌면 이전 시군구는 그 시도에 없다
             }}
             aria-label="시도"
-            className="rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+            className="input w-auto"
           >
             <option value="">선택 안 함</option>
             {SIDO_OPTIONS.map((o) => (
@@ -92,7 +93,7 @@ export function ProfileForm({ initial }: { initial: ProfileValues | null }) {
             onChange={(e) => setSigungu(e.target.value)}
             disabled={sido === ""}
             aria-label="시군구"
-            className="rounded border border-gray-300 px-2 py-1.5 text-sm disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900"
+            className="input w-auto disabled:opacity-45"
           >
             <option value="">시군구 선택 안 함</option>
             {(SIGUNGU_OPTIONS[sido] ?? []).map((name) => (
@@ -113,7 +114,7 @@ export function ProfileForm({ initial }: { initial: ProfileValues | null }) {
           name="income_bracket"
           defaultValue={initial?.income_bracket ?? ""}
           aria-label="소득 구간"
-          className="rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+          className="input w-auto"
         >
           <option value="">선택 안 함</option>
           {INCOME_BRACKETS.map((o) => (
@@ -160,17 +161,14 @@ export function ProfileForm({ initial }: { initial: ProfileValues | null }) {
         </Hint>
       </Section>
 
-      <div className="flex flex-wrap items-center gap-3 border-t border-gray-200 pt-5 dark:border-gray-800">
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded bg-gray-900 px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-gray-900"
-        >
+      {/* 이 화면에서 선이 남는 자리는 여기 하나뿐이다 — 입력이 끝나고 동작이 시작되는 경계 (§5.3) */}
+      <div className="border-t-[var(--divider)] flex flex-wrap items-center gap-3 border-t pt-5">
+        <button type="submit" disabled={pending} className="btn btn-primary">
           {pending ? "저장 중…" : "저장"}
         </button>
         <p
           aria-live="polite"
-          className={`text-sm ${state?.ok === false ? "text-red-600 dark:text-red-400" : "text-gray-600 dark:text-gray-400"}`}
+          className={`text-small ${state?.ok === false ? "text-danger" : "text-muted"}`}
         >
           {state?.message ?? ""}
         </p>
@@ -182,14 +180,14 @@ export function ProfileForm({ initial }: { initial: ProfileValues | null }) {
 function Section({ legend, children }: { legend: string; children: React.ReactNode }) {
   return (
     <fieldset>
-      <legend className="text-sm font-medium">{legend}</legend>
+      <legend className="text-sub">{legend}</legend>
       <div className="mt-2">{children}</div>
     </fieldset>
   );
 }
 
 function Hint({ children }: { children: React.ReactNode }) {
-  return <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{children}</p>;
+  return <p className="text-micro text-muted mt-2">{children}</p>;
 }
 
 /** 선택 해제 수단이 필요하다 — 라디오는 한 번 고르면 끌 수 없으므로 '선택 안 함'을 첫 칸에 둔다. */
@@ -205,10 +203,7 @@ function Radios({
   return (
     <div className="flex flex-wrap gap-2">
       {[{ code: "", label: "선택 안 함" }, ...options].map((o) => (
-        <label
-          key={o.code}
-          className="flex items-center gap-1.5 rounded border border-gray-300 px-2.5 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-        >
+        <label key={o.code} className="tag tag-btn tag-outline chip">
           <input type="radio" name={name} value={o.code} defaultChecked={(value ?? "") === o.code} />
           {o.label}
         </label>
@@ -230,10 +225,7 @@ function Checks({
   return (
     <div className="flex flex-wrap gap-2">
       {options.map((o) => (
-        <label
-          key={o.code}
-          className="flex items-center gap-1.5 rounded border border-gray-300 px-2.5 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-        >
+        <label key={o.code} className="tag tag-btn tag-outline chip">
           <input type="checkbox" name={name} value={o.code} defaultChecked={on.has(o.code)} />
           {o.label}
         </label>
