@@ -87,3 +87,18 @@ export const SIGUNGU_OPTIONS: Record<string, string[]> = Object.fromEntries(
 
 /** 생년 하한. 상한은 올해다 — 게이트가 연나이로 계산하므로 미래 연도는 음수 나이가 된다. */
 export const BIRTH_YEAR_MIN = 1900;
+
+/**
+ * 코드 → 한글 라벨. **폼과 프롬프트가 같은 표를 쓴다** (`lib/verdict/prompt.ts`).
+ *
+ * 표를 두 벌 두면 화면에 보이는 조건과 AI가 읽는 조건이 갈라진다. 사용자는 "근로자/직장인"을
+ * 골랐는데 모델은 다른 문구를 받는 상황이 조용히 생긴다.
+ *
+ * 그룹이 달라도 코드가 겹치지 않아(`JA01xx`~`JA11xx`) 한 장으로 충분하다.
+ */
+export const CODE_LABELS: Record<string, string> = Object.fromEntries(
+  [...GENDERS, ...INCOME_BRACKETS, ...SITUATIONS, ...HOUSEHOLDS, ...BUSINESS_STATUSES].map((o) => [
+    o.code,
+    o.label,
+  ]),
+);

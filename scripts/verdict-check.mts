@@ -6,7 +6,7 @@
 // 판정 규칙을 고칠 때마다 다시 돌린다 — 게이트는 조용히 틀리는 종류라 화면상 구별되지 않는다.
 import { checkGate, type PolicyConditions, type Profile } from "../src/lib/verdict/gate";
 import { locateQuote } from "../src/lib/verdict/normalize";
-import { buildSourceText, type PolicySourceFields } from "../src/lib/verdict/prompt";
+import { buildProfileText, buildSourceText, type PolicySourceFields } from "../src/lib/verdict/prompt";
 import { profileSignature } from "../src/lib/verdict/signature";
 import { validateVerdict } from "../src/lib/verdict/validate";
 
@@ -177,6 +177,51 @@ check(
 check(
   !buildSourceText(YOUTH_LIKE).includes("신청방법"),
   "신청방법·구비서류는 검증 대상에 넣지 않는다",
+);
+
+// ─── 5-b. buildProfileText ────────────────────────────────────
+// 프로필은 JA 코드로 저장된다. 코드가 그대로 프롬프트에 들어가면 모델이 읽지 못해
+// 시스템 프롬프트의 규칙 5·6이 무력해지는데, 그건 화면에서 전혀 드러나지 않는다.
+const ME: Profile = {
+  birth_year: 1998,
+  gender: null,
+  region_sido: "11",
+  region_sigungu: "동대문구",
+  income_bracket: null,
+  situations: ["JA0326"],
+  household: ["JA0404"],
+  business_status: null,
+};
+const meText = buildProfileText(ME, REF_YEAR);
+
+check(
+  meText ===
+    "- 나이: 28세 (1998년생)\n- 거주지: 서울특별시 동대문구\n- 개인 상황: 근로자/직장인\n- 가구 상황: 1인가구",
+  "§5.1.2 모델 실측에 쓴 문자열과 같다",
+  meText.replace(/\n/g, " / "),
+);
+check(!meText.includes("JA0"), "코드가 그대로 새어나가지 않는다");
+check(
+  buildProfileText({ ...ME, situations: ["JA0326", "JA0320"] }, REF_YEAR).includes(
+    "개인 상황: 근로자/직장인, 대학생/대학원생",
+  ),
+  "다중선택은 라벨을 이어 붙인다",
+);
+check(
+  buildProfileText({ ...ME, region_sigungu: null }, REF_YEAR).includes("거주지: 서울특별시\n"),
+  "시군구가 없으면 시도까지만",
+);
+check(
+  buildProfileText({ ...ME, business_status: "JA1101" }, REF_YEAR).includes(
+    "사업자 상황: 예비창업자",
+  ),
+  "사업자상황이 프롬프트에 들어간다 (규칙 6이 읽는 항목)",
+);
+// 모든 항목이 선택이라(작업 4) 실제로 저장될 수 있는 상태다. 판정 라우트가 이 경우를 정해야 한다.
+check(buildProfileText(EMPTY_PROFILE, REF_YEAR) === "", "빈 프로필은 빈 문자열");
+check(
+  buildProfileText({ ...EMPTY_PROFILE, birth_year: 1998 }, REF_YEAR) === "- 나이: 28세 (1998년생)",
+  "생년만 있으면 그 줄만",
 );
 
 // ─── 6. locateQuote — \r\n이 낀 원문 ──────────────────────────

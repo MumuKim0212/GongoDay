@@ -10,12 +10,25 @@
  * 앞의 세 항목만 순수 함수 검사다. `JA0322`·`JA0410`이 빠졌는지는 화면에서 관찰할 수 없다 —
  * 저장돼도 폼이 그리지 못하는 코드라 UI에 흔적이 남지 않고, 드러나는 곳은 작업 6의 게이트다.
  * **상수가 곧 Server Action의 허용 목록이므로**(`actions.ts`의 `codes(SITUATIONS)`) 상수를 직접 본다.
+ *
+ * > ⚠️ **세션을 파일에 저장해 재사용한다.** 매번 새 컨텍스트를 열면 실행마다 익명 유저가 2명씩
+ * > 생기고, 반복 검증하다 보면 **Supabase 익명 로그인이 `429 over_request_rate_limit`으로 막힌다.**
+ * > 실제로 한 번 막혀서 검증을 못 끝냈다. 저장 위치는 `node_modules/.cache`라 git이 볼 일이 없고,
+ * > 세션이 만료돼 못 쓰게 되면 `proxy.ts`가 새로 만들므로 그냥 다시 돌아간다.
  */
-import { chromium, type Page } from "playwright";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { chromium, type BrowserContext, type Page } from "playwright";
 
 import { HOUSEHOLDS, SIGUNGU_OPTIONS, SITUATIONS } from "../src/lib/profile/schema";
 
 const base = process.env.BASE_URL ?? "http://localhost:3000";
+const stateDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../node_modules/.cache/gongoday",
+);
 
 const pass: string[] = [];
 const fail: string[] = [];
@@ -40,11 +53,17 @@ check(
 );
 
 const browser = await chromium.launch();
+fs.mkdirSync(stateDir, { recursive: true });
 
-/** 컨텍스트마다 쿠키 항아리가 따로다 = 다른 익명 세션이다 */
-async function session(): Promise<Page> {
-  const context = await browser.newContext({ viewport: { width: 1000, height: 1400 } });
-  return context.newPage();
+/** 이름표마다 쿠키 항아리가 따로다 = 서로 다른 익명 세션이고, 실행 간에는 같은 세션이다. */
+async function session(name: string): Promise<[Page, () => Promise<void>]> {
+  const file = path.join(stateDir, `${name}.json`);
+  const context: BrowserContext = await browser.newContext({
+    viewport: { width: 1000, height: 1400 },
+    storageState: fs.existsSync(file) ? file : undefined,
+  });
+  const page = await context.newPage();
+  return [page, async () => void (await context.storageState({ path: file }))];
 }
 
 async function save(page: Page) {
@@ -55,7 +74,7 @@ async function save(page: Page) {
 const group = (page: Page, name: string) => page.getByRole("group", { name });
 
 // ── 세션 A — 전 항목을 채운다
-const a = await session();
+const [a, keepA] = await session("a");
 await a.goto(`${base}/profile`, { waitUntil: "networkidle" });
 
 await a.getByLabel("생년").fill("1998");
@@ -93,25 +112,33 @@ await a.goto(base, { waitUntil: "networkidle" });
 const listed = await a.locator("main > p").filter({ hasText: "코드 조건 통과" }).first().innerText();
 check(listed.includes("573"), "목록이 저장된 조건으로 좁혀진다 (28세·서울·동대문구 → 573건)", listed.trim());
 check(await a.getByRole("link", { name: "내 조건 수정" }).isVisible(), "프로필이 있으면 수정 링크");
+await keepA();
 
 // ── 세션 B — 다른 쿠키 항아리
-const b = await session();
+const [b, keepB] = await session("b");
 await b.goto(`${base}/profile`, { waitUntil: "networkidle" });
 
-// 2. 다른 세션에서는 안 보인다
-check((await b.getByLabel("생년").inputValue()) === "", "다른 세션에는 생년이 안 보인다");
-check((await b.getByLabel("시도").inputValue()) === "", "다른 세션에는 시도가 안 보인다");
+// 2. 다른 세션에서는 안 보인다.
+//    **A만 쓰는 값으로 본다** — B가 제 생년을 쓰기 때문에 생년으로는 격리를 잴 수 없다.
+check((await b.getByLabel("시도").inputValue()) === "", "다른 세션에는 A의 시도가 안 보인다");
+check((await b.getByLabel("시군구").inputValue()) === "", "다른 세션에는 A의 시군구가 안 보인다");
 check(
   !(await group(b, "개인 상황").getByRole("checkbox", { name: "근로자/직장인" }).isChecked()),
-  "다른 세션에는 개인상황이 안 보인다",
+  "다른 세션에는 A의 개인상황이 안 보인다",
 );
 check(await b.getByRole("link", { name: "내 조건 입력하기" }).isHidden(), "프로필 폼은 세션 B에도 열린다");
 
-// 3. 생년만 채워도 저장된다
-await b.getByLabel("생년").fill("1998");
+// 채운 값을 되돌릴 수 있어야 한다 — 조건을 잘못 넣었을 때 지울 방법이 없으면 안 된다
+await b.getByLabel("생년").fill("");
 await save(b);
 await b.reload({ waitUntil: "networkidle" });
-check((await b.getByLabel("생년").inputValue()) === "1998", "생년만 채워도 저장된다");
+check((await b.getByLabel("생년").inputValue()) === "", "채운 값을 다시 비울 수 있다");
+
+// 3. 생년만 채워도 저장된다
+await b.getByLabel("생년").fill("1990");
+await save(b);
+await b.reload({ waitUntil: "networkidle" });
+check((await b.getByLabel("생년").inputValue()) === "1990", "생년만 채워도 저장된다");
 check((await b.getByLabel("시도").inputValue()) === "", "안 채운 항목은 빈 채로 남는다");
 
 // 시도 없이 시군구만 온 요청은 시군구를 버린다 (게이트가 다른 시도 정책까지 막지 않도록).
@@ -129,6 +156,7 @@ check(
   "시도 없이 온 시군구는 버린다",
   await b.getByLabel("시군구").inputValue(),
 );
+await keepB();
 
 await browser.close();
 

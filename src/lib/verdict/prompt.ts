@@ -3,7 +3,14 @@
  *
  * buildSourceText의 출력이 곧 **AI에 넘긴 텍스트 = 인용 검증 대상 = 상세 화면 하이라이트 대상**이다.
  * 셋이 같은 문자열이어야 인용 검증이 성립한다.
+ *
+ * 정책 원문과 사용자 조건 두 쪽을 모두 여기서 만든다. 사용자 조건은 **한글 라벨로 바꿔서** 넘긴다 —
+ * 프로필은 `JA0326` 같은 코드로 저장되고(§2.2), 코드를 그대로 넣으면 모델이 읽지 못해
+ * 시스템 프롬프트의 규칙 5·6이 통째로 무력해진다.
  */
+import { CODE_LABELS, SIDO_OPTIONS } from "@/lib/profile/schema";
+
+import { ageFromBirthYear, type Profile } from "./gate";
 
 /** buildSourceText가 읽는 칸만 (§5.3). 신청방법·구비서류·심사방법은 넣지 않는다. */
 export type PolicySourceFields = {
@@ -64,6 +71,61 @@ export function buildSourceText(policy: PolicySourceFields): string {
     if (value !== null) parts.push(`[${label}]\n${value}`);
   }
   return parts.join("\n\n");
+}
+
+/**
+ * 프로필을 사용자 조건 텍스트로 조립한다. 비어 있는 항목은 줄째 생략한다 (`buildSourceText`와 같은 규칙).
+ *
+ * ```
+ * - 나이: 28세 (1998년생)
+ * - 거주지: 서울특별시 동대문구
+ * - 개인 상황: 근로자/직장인
+ * - 가구 상황: 1인가구
+ * ```
+ *
+ * **형태를 바꾸면 §5.1.2 모델 실측의 전제가 달라진다.** 그 실험은 이 문자열로 5개 모델을 비교했다.
+ * `scripts/model-eval.mts`가 이 함수를 호출해 같은 출력이 나오는지 대조한다.
+ *
+ * **빈 프로필이면 빈 문자열이다.** 모든 항목이 선택이라 실제로 일어난다(작업 4).
+ * 그때 AI를 부를지 말지는 판정 라우트가 정한다 — 조립 함수는 없는 것을 지어내지 않는다.
+ */
+export function buildProfileText(profile: Profile, refYear?: number): string {
+  const age =
+    profile.birth_year === null
+      ? null
+      : `${ageFromBirthYear(profile.birth_year, refYear)}세 (${profile.birth_year}년생)`;
+
+  const fields: [string, string | null][] = [
+    ["나이", age],
+    ["성별", codeLabel(profile.gender)],
+    ["거주지", residence(profile)],
+    ["소득 구간", codeLabel(profile.income_bracket)],
+    ["개인 상황", codeLabels(profile.situations)],
+    ["가구 상황", codeLabels(profile.household)],
+    ["사업자 상황", codeLabel(profile.business_status)],
+  ];
+
+  return fields
+    .filter((f): f is [string, string] => f[1] !== null)
+    .map(([label, value]) => `- ${label}: ${value}`)
+    .join("\n");
+}
+
+/** 라벨을 모르는 코드는 버린다. 저장이 허용 목록을 거치므로(`app/profile/actions.ts`) 정상 경로에는 없다. */
+function codeLabel(code: string | null): string | null {
+  return code === null ? null : (CODE_LABELS[code] ?? null);
+}
+
+function codeLabels(codes: string[]): string | null {
+  const named = codes.map((c) => CODE_LABELS[c]).filter((v): v is string => v !== undefined);
+  return named.length > 0 ? named.join(", ") : null;
+}
+
+/** 시군구만 있고 시도가 없는 프로필은 저장되지 않는다 (`actions.ts`) — 그래서 시도부터 본다. */
+function residence(profile: Profile): string | null {
+  const sido = SIDO_OPTIONS.find((o) => o.code === profile.region_sido);
+  if (sido === undefined) return null;
+  return profile.region_sigungu === null ? sido.label : `${sido.label} ${profile.region_sigungu}`;
 }
 
 /**

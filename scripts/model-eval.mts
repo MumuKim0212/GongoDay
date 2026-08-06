@@ -3,8 +3,13 @@
  *
  *   npx tsx scripts/model-eval.mts
  *
- * **프로덕션 코드 경로를 그대로 쓴다** — SYSTEM_PROMPT · buildSourceText · validateVerdict.
+ * **프로덕션 코드 경로를 그대로 쓴다** — SYSTEM_PROMPT · buildSourceText · buildProfileText · validateVerdict.
  * 그래야 여기서 잰 수치가 실제로 배포될 동작의 수치가 된다.
+ *
+ * > 처음에는 사용자 조건 텍스트만 이 파일에 손으로 적어뒀다. 프로필이 코드로 저장되는데
+ * > 코드→라벨 변환이 프로덕션에 없었기 때문이다. 작업 4가 그 상수를 만들면서 `buildProfileText`로
+ * > 옮겼고, **옮긴 문자열이 실측에 쓴 것과 같은지 아래에서 대조한다** — 다르면 §5.1.2가 잰 수치가
+ * > 지금 배포될 동작의 수치가 아니게 된다.
  *
  * 1순위 지표는 **인용 검증 통과율**이다. 정답 라벨 없이 객관적으로 잴 수 있고,
  * 이 프로젝트가 AI를 신뢰하는 유일한 근거이기 때문이다 (PRD §7.4).
@@ -13,7 +18,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { SYSTEM_PROMPT, buildSourceText, type PolicySourceFields } from "../src/lib/verdict/prompt";
+import {
+  SYSTEM_PROMPT,
+  buildProfileText,
+  buildSourceText,
+  type PolicySourceFields,
+} from "../src/lib/verdict/prompt";
 import { validateVerdict } from "../src/lib/verdict/validate";
 import { checkGate, type PolicyConditions, type Profile } from "../src/lib/verdict/gate";
 
@@ -55,10 +65,19 @@ const ME: Profile = {
   business_status: null,
 };
 
-const PROFILE_TEXT = `- 나이: ${REF_YEAR - ME.birth_year!}세 (${ME.birth_year}년생)
+const PROFILE_TEXT = buildProfileText(ME, REF_YEAR);
+
+// 모델 실측(§5.1.2)이 실제로 넘겼던 문자열. buildProfileText가 이것과 달라지면 실측 전제가 깨진다.
+const MEASURED_PROFILE_TEXT = `- 나이: ${REF_YEAR - ME.birth_year!}세 (${ME.birth_year}년생)
 - 거주지: 서울특별시 동대문구
 - 개인 상황: 근로자/직장인
 - 가구 상황: 1인가구`;
+
+if (PROFILE_TEXT !== MEASURED_PROFILE_TEXT) {
+  console.error("사용자 조건 텍스트가 §5.1.2 실측 때와 다르다. 모델 비교 수치를 다시 재야 한다.\n");
+  console.error(`실측:\n${MEASURED_PROFILE_TEXT}\n\n현재:\n${PROFILE_TEXT}`);
+  process.exit(1);
+}
 
 const RESPONSE_SCHEMA = {
   type: "OBJECT",

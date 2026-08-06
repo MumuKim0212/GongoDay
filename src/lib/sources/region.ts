@@ -91,8 +91,9 @@ export function youthRegion(zipCd: unknown): RegionFields {
 /**
  * 정부24 — `소관기관명`을 파싱해 시군구까지 (§2.6.2).
  *
- * **판별 실패는 전국으로 취급한다.** 실패분은 `한국주택금융공사` 같은 공공기관·재단(0.9%)인데,
- * 지역을 모르는 것을 '아님'으로 만들면 "숨기지 않는다"는 원칙에 어긋난다. 모르면 통과다.
+ * **판별 실패는 전국으로 취급한다.** `fallback()`까지 거치고 남는 실패분은 비중앙 9,911건의 11.3%이고
+ * `대한법률구조공단`처럼 **실제로 전국 기관인 것이 대부분**이다. 지역을 모르는 것을 '아님'으로 만들면
+ * "숨기지 않는다"는 원칙에 어긋난다. 모르면 통과다.
  */
 export function gov24Region(orgName: unknown, orgType: unknown): RegionFields {
   const none: RegionFields = {
