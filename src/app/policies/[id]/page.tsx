@@ -7,7 +7,7 @@ import { CATEGORY_LABELS, type Category } from "@/lib/sources/category";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/verdict/gate";
 import { locateQuote } from "@/lib/verdict/normalize";
-import { buildSourceText, type PolicySourceFields } from "@/lib/verdict/prompt";
+import { buildSourceText, sourceSections, type PolicySourceFields } from "@/lib/verdict/prompt";
 import { SIGNATURE_COLUMNS, profileSignature } from "@/lib/verdict/signature";
 import { SCORE_HINTS, scoreOf } from "@/lib/verdict/score";
 import type { DecidedVerdict } from "@/lib/verdict/validate";
@@ -95,6 +95,8 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
 
   // **판정에 넘긴 것과 같은 문자열이다.** 여기서 다시 조립하는 것이 곧 "같다"의 보장이다 (§5.3).
   const sourceText = buildSourceText(policy);
+  // 화면은 라벨을 제목으로 세우므로 조각째 받는다. 본문도 구간도 위 문자열 기준 그대로다 (§5.4).
+  const sections = sourceSections(policy);
   // 하이라이트 구간은 저장하지 않고 매번 다시 찾는다 — 원문이 갱신되면 구간도 따라 움직여야 한다.
   const highlight =
     verdict?.quote && verdict.quote_verified ? locateQuote(sourceText, verdict.quote) : null;
@@ -166,10 +168,13 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
         )}
       </section>
 
+      {/* 머리(제목·버튼)와 읽을 것 사이를 가르는 줄 */}
+      <hr className="border-divider mt-5 border-t" />
+
       {/*
         판정 결과 — 목록에서 이미 판정한 것을 그대로 읽는다. 이 화면은 Gemini를 부르지 않는다.
         **이 화면에서 상자를 두르는 블록은 여기 하나뿐이다** (DESIGN.md §5.2). 나머지 구획은
-        제목과 여백이 나눈다 — 지면에 선을 긋지 않는 것이 이 시스템의 첫 규칙이다.
+        제목과 여백이, 성격이 바뀌는 두 자리에서는 가로줄이 나눈다.
       */}
       <section className="card elev-sm mt-5">
         <div className="card-kicker">판정 근거</div>
@@ -218,23 +223,16 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
         )}
       </section>
 
-      <section className="mt-6">
-        <h2 className="text-sub">판정 근거 원문</h2>
-        <p className="text-micro text-muted mt-1">
-          AI에게 넘긴 텍스트 그대로입니다.
-          {highlight ? " 표시된 문장이 판정 근거로 인용된 문장입니다." : ""}
-        </p>
-        <div className="mt-2">
-          <QuoteHighlight text={sourceText} range={highlight} />
-        </div>
+      {/* 판정 근거 원문 — 조각의 라벨이 곧 제목이라 블록에는 따로 제목을 두지 않는다 */}
+      <section id="evidence" className="mt-6">
+        <QuoteHighlight sections={sections} range={highlight} />
       </section>
 
-      <section className="mt-6">
+      {/* 판정에 안 쓴 텍스트가 근거 블록에 섞이면 "이 문장을 보고 판정했나"를 알 수 없다 (§5.3) */}
+      <hr className="border-divider mt-6 border-t" />
+
+      <section id="guide" className="mt-6">
         <h2 className="text-sub">신청 안내</h2>
-        <p className="text-micro text-muted mt-1">
-          {/* 판정에 안 쓴 텍스트를 섞으면 "이 문장을 보고 판정했나"를 알 수 없다 (§5.3) */}
-          판정에는 쓰이지 않은 정보입니다. 최종 확인은 원문에서 해주세요.
-        </p>
         <div className="text-compact mt-2">
           {hasGuide ? (
             <dl className="flex flex-col gap-4">
@@ -243,7 +241,7 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
                   <div key={label}>
                     <dt className="text-micro text-muted">{label}</dt>
                     <dd className="mt-0.5 leading-[1.7] break-words whitespace-pre-wrap">
-                      {value}
+                      {dropEchoedLabel(label, value)}
                     </dd>
                   </div>
                 ),
@@ -258,6 +256,21 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
       </section>
     </Shell>
   );
+}
+
+/**
+ * 원문 첫 줄이 라벨과 같은 말이면 그 줄만 지운다 — 기관이 한 칸 안에 소제목을 또 써 둔 경우다
+ * (`apply_method_text`가 `○ 신청방법`으로 시작하고 아래에 `○ 신청경로`가 이어지는 식).
+ *
+ * **여기서만 한다.** 판정 근거 원문은 AI에 넘긴 문자열 그대로여야 하므로 한 줄도 빼지 않는다 (§5.3).
+ * 지우고 나면 아무것도 안 남는 칸은 그냥 둔다 — 겹쳐 보이는 편이 빈 칸보다 낫다.
+ */
+function dropEchoedLabel(label: string, text: string): string {
+  const [first, ...rest] = text.split("\n");
+  const head = first.replace(/^[^\p{L}\p{N}]+/u, "").replace(/[\s:：]+$/u, "");
+  if (head !== label) return text;
+  const body = rest.join("\n").trimStart();
+  return body === "" ? text : body;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {

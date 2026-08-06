@@ -50,13 +50,20 @@ export const SYSTEM_PROMPT = `당신은 정부·지자체 지원정책의 자격
 - unclear: 원문만으로는 판단할 수 없다. 남은 확인 항목을 checks에 적는다
 - ineligible: 원문 근거로 자격을 충족하지 않는다. 어긋난 조건을 blockers에 적는다`;
 
+/** 조립 결과 한 조각. `start`는 **`buildSourceText()` 문자열에서** 본문이 시작하는 위치다. */
+export type SourceSection = { label: string; body: string; start: number };
+
 /**
- * 정책 원문을 라벨 붙여 조립한다. `null`·공백 필드는 라벨째 생략한다.
+ * 정책 원문을 라벨 붙은 조각으로 나눈다. `null`·공백 필드는 라벨째 생략한다.
  *
  * `summary`·`support_text`를 반드시 넣는다 — 온통청년의 `eligibility_text`가 33.7%뿐이라(PRD §8 R10)
  * 이 둘이 빠지면 2/3의 정책에서 AI가 근거로 삼을 문장이 없다.
+ *
+ * 상세 화면은 라벨을 `[정책명]`이 아니라 제목으로 조판하므로 조각째 받아 간다. **조립과 쪼개기가
+ * 같은 함수여야** `start`가 `buildSourceText()`의 위치와 어긋나지 않는다 — 하이라이트 구간은
+ * 조립 문자열 기준이다 (§5.4).
  */
-export function buildSourceText(policy: PolicySourceFields): string {
+export function sourceSections(policy: PolicySourceFields): SourceSection[] {
   const fields: [string, string | null][] = [
     ["정책명", policy.title],
     ["요약", policy.summary],
@@ -69,12 +76,24 @@ export function buildSourceText(policy: PolicySourceFields): string {
     ["신청기간", policy.apply_period ?? policy.biz_period_etc],
   ];
 
-  const parts: string[] = [];
+  const sections: SourceSection[] = [];
+  let offset = 0;
   for (const [label, raw] of fields) {
-    const value = normalizeNewlines(raw);
-    if (value !== null) parts.push(`[${label}]\n${value}`);
+    const body = normalizeNewlines(raw);
+    if (body === null) continue;
+    if (sections.length > 0) offset += 2; // 조각 사이의 "\n\n"
+    const start = offset + label.length + 3; // "[" + label + "]" + "\n"
+    sections.push({ label, body, start });
+    offset = start + body.length;
   }
-  return parts.join("\n\n");
+  return sections;
+}
+
+/** AI에 넘기는 텍스트. **이 형태를 바꾸면 저장된 인용 검증의 전제가 달라진다** (§5.3). */
+export function buildSourceText(policy: PolicySourceFields): string {
+  return sourceSections(policy)
+    .map(({ label, body }) => `[${label}]\n${body}`)
+    .join("\n\n");
 }
 
 /**

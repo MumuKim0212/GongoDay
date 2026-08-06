@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "playwright";
 
 import { locateQuote, normalize } from "../src/lib/verdict/normalize";
-import { buildSourceText, type PolicySourceFields } from "../src/lib/verdict/prompt";
+import { buildSourceText, sourceSections, type PolicySourceFields } from "../src/lib/verdict/prompt";
 
 const base = process.env.BASE_URL ?? "http://localhost:3000";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -151,8 +151,9 @@ if (target !== undefined) {
   const spansNewline = target.hit!.sourceText.indexOf(target.hit!.quote) < 0;
   await page.goto(`${base}/policies/${target.id}`, { waitUntil: "networkidle" });
 
-  const evidence = page.locator("section").filter({ hasText: "판정 근거 원문" }).last();
-  const guide = page.locator("section").filter({ hasText: "신청 안내" }).last();
+  // 블록에 제목이 없으므로 글자가 아니라 id로 잡는다 — 원문 문구는 정책마다 다르다
+  const evidence = page.locator("#evidence");
+  const guide = page.locator("#guide");
   const marks = evidence.locator("mark");
 
   check((await marks.count()) === 1, "판정 근거 블록에 하이라이트가 하나 있다", `${await marks.count()}개`);
@@ -171,9 +172,13 @@ if (target !== undefined) {
     "신청방법 텍스트는 판정 근거 원문에 들어가지 않는다",
     applyText ? collapse(applyText).slice(0, 40) : "(신청방법 없음)",
   );
+  // 라벨은 `[정책명]`이 아니라 제목으로 조판되지만 **본문은 조립한 문자열 그대로**여야 한다
+  const policyRow = policies.get(target.id);
+  const sections = policyRow ? sourceSections(policyRow) : [];
   check(
-    evidenceText.includes(collapse(target.hit!.sourceText).slice(0, 60)),
-    "근거 블록이 buildSourceText 출력 그대로다",
+    sections.length > 0 && sections.every((s) => evidenceText.includes(collapse(s.body))),
+    "근거 블록이 buildSourceText가 조립한 본문을 조각째 그대로 담는다",
+    `${sections.length}개 필드`,
   );
 
   // ── 개행이 낀 인용문을 화면에서 확인한다 (완료 판정이 명시한 경우).
@@ -207,7 +212,7 @@ if (target !== undefined) {
     await patch(fixture);
     await page.goto(`${base}/policies/${newlineCase.id}`, { waitUntil: "networkidle" });
 
-    const mark = page.locator("section").filter({ hasText: "판정 근거 원문" }).last().locator("mark");
+    const mark = page.locator("#evidence mark");
     const marked = (await mark.count()) === 1 ? await mark.first().textContent() : null;
     check(
       marked !== null && collapse(marked) === fixture,
@@ -267,7 +272,7 @@ check(
   "판정이 없으면 그렇다고 말하고 원문은 그대로 보여준다",
 );
 check(
-  (await freshPage.locator("section").filter({ hasText: "판정 근거 원문" }).last().innerText()).length > 50,
+  (await freshPage.locator("#evidence").innerText()).length > 50,
   "판정이 없어도 원문 블록은 채워져 있다",
 );
 

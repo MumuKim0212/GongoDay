@@ -145,8 +145,12 @@ const withQuote = (await cards(page)).find((c) => c.text.length > 200) ?? (await
 const detail = await page.goto(`${base}/policies/${withQuote.id}`, { waitUntil: "networkidle" });
 check(detail?.status() === 200, "카드에서 상세로 들어간다", String(detail?.status()));
 
-const evidence = page.locator("section").filter({ hasText: "판정 근거 원문" }).last();
-check((await evidence.innerText()).includes("[정책명]"), "판정 근거 원문이 조립 결과 그대로다");
+// 라벨은 `[정책명]`이 아니라 제목으로 조판된다 — 조각의 순서와 라벨은 조립 결과 그대로다
+const evidence = page.locator("#evidence");
+check(
+  (await evidence.locator("h2").first().innerText()).trim() === "정책명",
+  "판정 근거 원문이 조립 결과 그대로다",
+);
 check(
   (await page.locator("section").filter({ hasText: "신청 안내" }).count()) > 0,
   "신청 안내가 별도 블록으로 나뉘어 있다",
