@@ -95,17 +95,19 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-page px-4 py-8">
+      <main className="mx-auto w-full max-w-page px-4 pt-12 pb-8">
         {/* 히어로 — **이 한 블록만 가운데다** (§5.1, 일탈 D7). 아래 둘러보기부터는 왼쪽 정렬이다.
             REQ-05 + 이름 해석 고정 (F-32) — "오늘 올라온 공고"로 읽히면 안 된다.
             **이탤릭으로 강조하지 않는다** — 강조할 구절이 한글이고 Noto Serif KR에는 이탤릭
             페이스가 없어 합성 기울임이 된다 (§2.3). 제목의 600 위에 700을 얹는다. */}
         <div className="mx-auto max-w-read text-center">
-          <h1 className="text-display text-balance">
-            오늘, <strong className="font-bold">내가 신청할 수 있는</strong> 공고만.
+          {/* 좁은 화면에서는 한 단 내린다 — 375px에서 44px은 세 줄로 넘친다.
+              clamp를 쓰지 않는 이유는 두 값이 다 스케일 위에 있어야 하기 때문이다 (§2.3) */}
+          <h1 className="text-display sm:text-hero text-balance">
+            오늘, <strong className="font-extrabold">내가 신청할 수 있는</strong> 공고만.
           </h1>
 
-          <p className="text-body text-muted mt-3 text-balance">
+          <p className="text-sub text-muted mt-4 font-normal text-balance">
             조건을 한 번 넣어두면 온통청년·정부24의 지원정책을 한 곳에서 걸러 보여줍니다.
           </p>
         </div>
@@ -130,7 +132,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
 
         {/* 둘러보기 머리줄 — 제목 옆이 보기 전환 자리다 */}
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-section">공고 둘러보기</h2>
+          <h2 className="text-title">공고 둘러보기</h2>
           <ViewToggle view={view} sp={sp} />
         </div>
 

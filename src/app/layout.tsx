@@ -1,27 +1,32 @@
 import type { Metadata } from "next";
-import { Noto_Serif_KR, Source_Serif_4 } from "next/font/google";
+import { Noto_Sans_KR, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
 
 /**
- * 세리프 페어링 (docs/DESIGN.md §2.3)
+ * 산세리프 페어링 (docs/DESIGN.md §2.3, 일탈 D9)
  *
- * Source Serif 4에는 한글 글리프가 없다. 라틴·숫자를 Source Serif 4가 잡고, 한글은 스택의
- * 다음 자리인 Noto Serif KR로 넘어간다 — 순서는 `globals.css`의 `--serif`가 정한다.
+ * **원본 Broadsheet은 전부 세리프다** — 그 원칙을 여기서 버렸다. 이유는 §7에 있다.
+ * 서체만 갈아탔고 페어링 구조는 그대로다: Source Sans 3은 전에 쓰던 Source Serif 4의
+ * 산세리프 형제라 자폭·리듬이 같은 계열이고, 한글은 Noto Serif KR → Noto Sans KR로 옮겼다.
+ *
+ * Source Sans 3에는 한글 글리프가 없다. 라틴·숫자를 Source Sans 3이 잡고, 한글은 스택의
+ * 다음 자리인 Noto Sans KR로 넘어간다 — 순서는 `globals.css`의 `--sans`가 정한다.
  *
  * `subsets`는 **프리로드 대상만** 정한다. `next/font`는 구글이 준 CSS의 모든 `@font-face`를
  * 자체 호스팅하므로(`find-font-files-in-css.js`), 한글 청크는 `korean`을 적지 않아도 내려온다.
  * 다만 프리로드는 안 되므로 첫 화면에서 한글이 잠깐 대체 서체로 보일 수 있다 (`display: swap`).
+ *
+ * **이탤릭 페이스를 싣지 않는다.** 세리프 때는 인용·강조를 진짜 이탤릭으로 했지만, 강조할
+ * 구절이 대부분 한글이고 한글 산세리프에 이탤릭 페이스는 없다 — 실을 이유가 없다. 강조는 굵기다.
  */
-const sourceSerif = Source_Serif_4({
-  variable: "--font-source-serif",
+const sourceSans = Source_Sans_3({
+  variable: "--font-source-sans",
   subsets: ["latin"],
-  // 인용·강조는 진짜 이탤릭을 쓴다. 합성 기울임을 쓰지 않는다 (§2.3).
-  style: ["normal", "italic"],
   display: "swap",
 });
 
-const notoSerifKr = Noto_Serif_KR({
-  variable: "--font-noto-serif-kr",
+const notoSansKr = Noto_Sans_KR({
+  variable: "--font-noto-sans-kr",
   subsets: ["latin"],
   display: "swap",
 });
@@ -33,10 +38,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="ko"
-      className={`${sourceSerif.variable} ${notoSerifKr.variable} h-full antialiased`}
-    >
+    <html lang="ko" className={`${sourceSans.variable} ${notoSansKr.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

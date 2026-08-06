@@ -104,9 +104,9 @@
   --shadow-paper-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
   --shadow-paper-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
 
-  /* 라틴·숫자는 Source Serif 4가, 한글은 Noto Serif KR이 잡는다. **순서를 바꾸면 숫자까지
-     Noto가 가져간다** (§2.3). */
-  --serif: var(--font-source-serif), var(--font-noto-serif-kr), Georgia, serif;
+  /* 라틴·숫자는 Source Sans 3이, 한글은 Noto Sans KR이 잡는다. **순서를 바꾸면 숫자까지
+     Noto가 가져간다** (§2.3, 일탈 D9). */
+  --sans: var(--font-source-sans), var(--font-noto-sans-kr), system-ui, sans-serif;
 }
 
 /* 종이와 먹을 뒤집는다 — "잉크 위에 인쇄한 종이" (§2.1, 일탈 D1) */
@@ -158,29 +158,40 @@
   --color-accent-2: var(--accent-2);
   --color-danger: var(--danger);
 
-  --font-heading: var(--serif);
-  --font-body: var(--serif);
+  --font-heading: var(--sans);
+  --font-body: var(--sans);
 
   /* 타입 스케일 (§2.3). **여기 없는 크기를 쓰지 않는다.**
-     제목 네 단계는 굵기와 자간을 함께 들고 다닌다 — `text-title` 하나로 끝난다. */
+     제목 다섯 단계는 굵기와 자간을 함께 들고 다닌다 — `text-title` 하나로 끝난다.
+
+     굵기는 전부 700이다. 산세리프로 갈아타며(D9) 600은 제목으로 안 읽히게 됐다 —
+     세리프는 획 대비가 굵기를 대신해 주지만 산세리프는 굵기밖에 없다. */
+
+  /* 첫 화면 히어로 전용 (D10). **이 한 자리에만 쓴다** — 목록·상세·프로필의 제목은
+     `title`(25px)이다. 자간을 -0.03em까지 조인 것은 44px에서 -0.015em이 헐거워 보이기 때문이다. */
+  --text-hero: 44px;
+  --text-hero--line-height: 1.08;
+  --text-hero--letter-spacing: -0.03em;
+  --text-hero--font-weight: 700;
+
   --text-display: 32px;
   --text-display--line-height: 1.12;
-  --text-display--letter-spacing: -0.015em;
-  --text-display--font-weight: 600;
+  --text-display--letter-spacing: -0.02em;
+  --text-display--font-weight: 700;
 
   --text-title: 25px;
-  --text-title--line-height: 1.12;
-  --text-title--letter-spacing: -0.015em;
-  --text-title--font-weight: 600;
+  --text-title--line-height: 1.16;
+  --text-title--letter-spacing: -0.02em;
+  --text-title--font-weight: 700;
 
   --text-section: 20px;
   --text-section--line-height: 1.2;
   --text-section--letter-spacing: -0.015em;
-  --text-section--font-weight: 600;
+  --text-section--font-weight: 700;
 
   --text-sub: 16px;
   --text-sub--line-height: 1.2;
-  --text-sub--font-weight: 600;
+  --text-sub--font-weight: 700;
 
   /* 한글은 글자 밀도가 높아 원본 행간(1.55)에서 뭉친다 (§2.3, 일탈 D2) */
   --text-body: 15px;
@@ -225,21 +236,21 @@
   body {
     background: var(--paper);
     color: var(--ink);
-    font-family: var(--serif);
+    font-family: var(--sans);
     font-size: 15px;
     line-height: 1.7;
   }
 
-  /* 크기는 유틸리티가 정한다. 여기서는 서체와 굵기만 — 원본은 세리프가 곧 UI 크롬이다 (원칙 2) */
+  /* 크기는 유틸리티가 정한다. 여기서는 서체와 굵기만 (§2.3) */
   h1,
   h2,
   h3,
   h4,
   h5,
   h6 {
-    font-family: var(--serif);
-    font-weight: 600;
-    letter-spacing: -0.015em;
+    font-family: var(--sans);
+    font-weight: 700;
+    letter-spacing: -0.02em;
   }
 
   /* 원본은 `a`에 accent를 걸지만 여기서는 걸지 않는다. 본문 크기(15px)의 accent는 3.7:1로
@@ -290,7 +301,7 @@
     gap: 6px;
     cursor: pointer;
     text-decoration: none;
-    font-family: var(--serif);
+    font-family: var(--sans);
     font-weight: 600;
     font-size: 14px;
     line-height: 1.2;
@@ -483,11 +494,11 @@
     color: var(--accent-ink);
   }
   .card-title {
-    font-family: var(--serif);
-    font-weight: 600;
+    font-family: var(--sans);
+    font-weight: 700;
     font-size: 16px;
-    line-height: 1.2;
-    letter-spacing: -0.015em;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
   }
   .card-body {
     margin: 0;
@@ -505,11 +516,8 @@
 
   /* ── 타일 (§5.1 보기 전환) ─────────────────────────────────────────── */
   /*
-   * 그리드로 훑을 때의 카드다. `.card`와 나눈 이유는 **머리띠가 가장자리까지 닿아야
-   * 하기 때문**이다 — `.card`는 안쪽 여백을 갖고 있어 띠를 붙일 수가 없다.
-   *
-   * 띠는 종이색이다. 카드가 바탕보다 밝아졌으므로(§2.1) 종이색이 이제 한 겹 **아래**
-   * 층이고, 카드 안에서 구분되는 자리는 전부 이 색이다 — 새 토큰을 만들지 않았다.
+   * 그리드로 훑을 때의 카드다. `.card`와 나눈 이유는 **그림 자리가 가장자리까지 닿아야
+   * 하기 때문**이다 — `.card`는 안쪽 여백을 갖고 있어 붙일 수가 없다.
    */
   .tile {
     display: flex;
@@ -520,33 +528,32 @@
     overflow: hidden;
   }
 
-  /* **띠 높이는 배지가 정한다.** 판정 전(배지 없음)과 후(배지 있음)의 띠 높이가 다르면
-     판정 결과가 도착할 때 그리드 한 줄이 통째로 밀린다 — §4.6 스켈레톤과 같은 이유다.
-     식이 곧 근거다: 배지 24.8px + 위아래 여백 8px씩. */
-  .tile-band {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    min-height: calc(24.8px + var(--space-unit) * 3.2);
-    padding: calc(var(--space-unit) * 1.6) calc(var(--space-unit) * 3);
-    background: var(--paper);
+  /*
+   * 그림 자리 (§5.1). 레퍼런스는 아이콘 사이트라 카드가 이미지로 시작하는데,
+   * **공고에는 이미지가 없다.** 분야 선화를 옅은 시안 워시 위에 세워 그 자리를 채운다.
+   *
+   * 워시는 `--tint-accent-bg`가 아니라 accent 8%다 — 그 토큰은 4점 배지의 채움이라
+   * 모든 타일이 그 색이면 배지가 묻힌다 (§4.1). 잉크는 하나이고 농도만 다르다 (원칙 3).
+   */
+  .tile-media {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--accent) 8%, var(--surface)),
+      var(--surface) 78%
+    );
     border-bottom: 1px solid var(--divider);
+    color: var(--accent-ink);
   }
 
-  /* 분야는 타일에서 제목 다음으로 먼저 읽히는 것이다 — 그리드는 훑는 화면이라
-     "이게 무슨 분야인지"가 카드 본문보다 앞선다. 배지가 아니라 글자다 (§4.2와 같은 이유) */
-  .tile-band-label {
-    font-family: var(--serif);
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: -0.015em;
-    line-height: 1.2;
-    color: var(--accent-ink);
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  /* 배지는 그림 위 오른쪽 위다 — 목록 카드·상세와 같은 자리라 화면이 이어진다 (§5.1) */
+  .tile-badge {
+    position: absolute;
+    top: calc(var(--space-unit) * 2);
+    right: calc(var(--space-unit) * 2);
   }
 
   .tile-body {

@@ -5,7 +5,8 @@ import type { PolicyListRow } from "@/lib/policies/query";
 import { scoreOf } from "@/lib/verdict/score";
 import type { DecidedVerdict } from "@/lib/verdict/validate";
 
-import { ScoreBadge, SourceKicker, VerdictBadgeSkeleton } from "./badges";
+import { CategoryBadge, ScoreBadge, SourceKicker, VerdictBadgeSkeleton } from "./badges";
+import { CategoryIcon } from "./CategoryIcon";
 
 /**
  * 그리드로 훑을 때의 카드 (docs/DESIGN.md §5.1 보기 전환)
@@ -36,24 +37,34 @@ export function PolicyTile({
   // 판정 전에는 원문 요약이, 판정 후에는 판정 이유가 그 자리를 쓴다.
   const blurb = verdict?.reason ?? policy.summary ?? policy.eligibility_text ?? null;
 
-  const category = policy.categories[0] as Category | undefined;
+  // 분야가 여럿이면 첫 번째가 그림이 된다 — 목록 카드도 첫 세 개만 보여준다.
+  const category = (policy.categories[0] as Category | undefined) ?? "etc";
 
   return (
     <article className={`tile ${dimmed ? "opacity-60" : ""}`}>
-      <div className="tile-band">
-        <span className="tile-band-label">
-          {category ? (CATEGORY_LABELS[category] ?? category) : "기타"}
-        </span>
+      <div className="tile-media">
+        <CategoryIcon category={category} />
 
-        {verdict && score ? (
-          <ScoreBadge score={score} checkCount={verdict.checks.length} decidedBy={verdict.decided_by} />
-        ) : judging ? (
-          <VerdictBadgeSkeleton />
-        ) : null}
+        <span className="tile-badge">
+          {verdict && score ? (
+            <ScoreBadge
+              score={score}
+              checkCount={verdict.checks.length}
+              decidedBy={verdict.decided_by}
+            />
+          ) : judging ? (
+            <VerdictBadgeSkeleton />
+          ) : null}
+        </span>
       </div>
 
       <div className="tile-body">
-        <SourceKicker source={policy.source} />
+        {/* 출처와 분야를 한 줄에 둔다 — 타일은 그림이 179px를 먹으므로 본문 줄 수를 아껴야 한다.
+            그림이 말하는 분야를 글자로도 적는 이유는 선화만으로는 뜻이 안 전해지기 때문이다 (§6.2) */}
+        <div className="flex flex-wrap items-center gap-2">
+          <SourceKicker source={policy.source} />
+          <CategoryBadge label={CATEGORY_LABELS[category]} />
+        </div>
 
         <Link
           href={`/policies/${policy.id}`}
