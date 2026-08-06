@@ -3,7 +3,6 @@ import Link from "next/link";
 
 import { ListControls } from "@/components/ListControls";
 import { PolicyList } from "@/components/PolicyList";
-import { SyncButton } from "@/components/SyncButton";
 import { CATEGORIES, DEFAULT_CATEGORIES, type Category } from "@/lib/sources/category";
 import { PAGE_SIZE, defaultFilters, fetchPolicies, type ListFilters } from "@/lib/policies/query";
 import { createClient } from "@/lib/supabase/server";
@@ -93,12 +92,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
         <Link href="/profile" className="btn btn-secondary">
           {profile ? "내 조건 수정" : "내 조건 입력하기"}
         </Link>
-        <SyncButton />
       </section>
 
       {/* 한 소스만 수집됐어도 있는 것만 보여준다 (§7) */}
       <p className="text-micro text-muted mt-2">
-        마지막 갱신 · 온통청년 {syncedAt.youth ?? "없음"} · 정부24 {syncedAt.gov24 ?? "없음"}
+        마지막 전량 갱신 · 온통청년 {syncedAt.youth ?? "없음"} · 정부24 {syncedAt.gov24 ?? "없음"}
       </p>
 
       <p className="text-small text-muted mt-3">
@@ -156,7 +154,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
         ) : totalCount === 0 ? (
           <EmptyState
             title="아직 수집된 정책이 없습니다"
-            body="위의 갱신 버튼을 눌러 정책을 받아오세요."
+            body="정책은 매시간 자동으로 받아옵니다. 잠시 후 새로고침해 주세요."
           />
         ) : (
           <EmptyState
@@ -214,7 +212,13 @@ async function fetchVerdicts(
   return out;
 }
 
-/** 소스별 마지막 성공 시각 (F-05). 실패한 실행은 "갱신됨"으로 읽히면 안 되므로 제외한다. */
+/**
+ * 소스별 마지막 **전량** 갱신 시각 (F-05). 실패한 실행은 "갱신됨"으로 읽히면 안 되므로 제외한다.
+ *
+ * ⚠️ **`last_page = 0`(= 끝까지 받은 실행)만 읽어야 한다.** 수집은 매시간 10페이지씩 끊어 도는데,
+ * 그 중간 실행까지 세면 정부24 뒷페이지가 11시간 전 것인데도 화면은 **매시간 "방금 갱신됨"**이라고
+ * 말하게 된다.
+ */
 async function fetchLastSync(
   supabase: Awaited<ReturnType<typeof createClient>>,
 ): Promise<{ youth: string | null; gov24: string | null }> {
@@ -223,6 +227,7 @@ async function fetchLastSync(
     .select("source, finished_at")
     .is("error", null)
     .not("finished_at", "is", null)
+    .eq("last_page", 0)
     .order("finished_at", { ascending: false })
     .limit(50);
 

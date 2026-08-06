@@ -190,8 +190,9 @@ check(
 );
 
 // ── 7. 수집 실패는 화면을 비우지 않는다 ────────────────────────────────
+// 인증을 먼저 본다 — 이 라우트는 크론 전용이라 아무나 부르면 공공 API 쿼터가 그대로 탄다
 const badSync = await otherPage.request.post(`${base}/api/sync`, { data: { source: "없는소스" } });
-check(badSync.status() === 400, "알 수 없는 수집 요청은 400", String(badSync.status()));
+check(badSync.status() === 401, "인증 없는 수집 요청은 401", String(badSync.status()));
 check(
   (await otherPage.locator("article").count()) === 10,
   "수집 요청이 실패해도 목록은 그대로다",

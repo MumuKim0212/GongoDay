@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { SyncButton } from "@/components/SyncButton";
 import { isAdminAllowed, isAdminLocked } from "@/lib/admin/access";
 import { SOURCE_LABELS, envStatus, fetchAdminStats, type Num, type SyncStatus } from "@/lib/admin/stats";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -76,6 +77,17 @@ export default async function AdminPage({ params }: PageProps<"/admin/[[...slug]
             <code>SUPABASE_SERVICE_ROLE_KEY</code>가 없어 집계를 읽을 수 없습니다.
           </Note>
         )}
+
+        {/* 버튼이 자기가 바꾸는 상태(위의 '이어받을 페이지') 바로 옆에 있다 */}
+        <div className="mt-3">
+          <SyncButton slug={slug} />
+          <p className="mt-1 text-xs text-gray-500">
+            평소 수집은 <strong>매시간 GitHub Actions</strong>가 돌립니다(
+            <code>.github/workflows/sync.yml</code>). 한 번에 10페이지씩이라 온통청년은 3시간, 정부24는 11시간에 한
+            바퀴입니다 — 이 버튼은 <strong>지금 당장</strong> 한 바퀴 더 돌릴 때만 쓰고, 그냥 두면 크론이 마저
+            받아갑니다.
+          </p>
+        </div>
 
         <h3 className="mt-4 text-sm font-medium">환경 변수</h3>
         <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">

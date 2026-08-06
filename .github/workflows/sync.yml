@@ -1,0 +1,44 @@
+name: 정책 수집
+
+# Vercel Hobby 크론은 하루 1회까지다 — `0 * * * *`은 실행이 안 되는 게 아니라 **배포 자체가 실패한다.**
+# 그래서 트리거만 여기 두고, 받는 쪽은 그대로 Vercel이다 (`POST /api/sync`).
+#
+# 한 번에 10페이지씩 받고 `sync_runs.last_page`로 이어받으므로 한 바퀴가 여러 시간에 걸쳐 채워진다.
+#   온통청년 27페이지 → 3시간 · 정부24 110페이지 → 11시간
+# 어디서 끊기든 진행이 DB에 남아 다음 정각이 이어받는다. 그래서 체인도 감시 장치도 없다.
+#
+# ⚠️ **GitHub는 레포가 60일간 조용하면 schedule을 자동 비활성화한다.** 수집이 소리 없이 멈추므로,
+#    /admin의 '마지막 성공'이 하루 이상 밀려 있으면 Actions 탭에서 다시 켤 것.
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch: # 손으로 한 번 돌려볼 때
+
+# 앞 실행이 아직 돌고 있으면 겹치지 않게 한다 — 같은 `last_page`를 둘이 읽으면 API 호출만 두 배다.
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      SYNC_URL: ${{ vars.SYNC_URL || 'https://gongoday.vercel.app' }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: 온통청년
+        run: |
+          curl --fail-with-body -sS --max-time 120 -X POST "$SYNC_URL/api/sync" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"source":"youth"}'
+
+      # 한 소스가 실패해도 다른 소스는 받는다 (ARCHITECTURE §4.3).
+      - name: 정부24
+        if: always()
+        run: |
+          curl --fail-with-body -sS --max-time 120 -X POST "$SYNC_URL/api/sync" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"source":"gov24"}'

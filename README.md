@@ -20,7 +20,7 @@ cp .env.example .env.local   # 키 7개를 채운다
 npm run dev
 ```
 
-`supabase/schema.sql`이 스키마의 단일 진실 원천입니다. 정책 데이터는 화면의 **갱신** 버튼(`POST /api/sync`)으로 받습니다 — 한 번에 10페이지씩이라 전량을 받으려면 여러 번 누릅니다.
+`supabase/schema.sql`이 스키마의 단일 진실 원천입니다. 정책 데이터는 **매시간 GitHub Actions**(`.github/workflows/sync.yml`)가 `POST /api/sync`를 쳐서 받습니다 — 한 번에 10페이지씩 이어받으므로 온통청년은 3시간, 정부24는 11시간에 한 바퀴입니다. 즉시 돌려야 하면 `/admin`의 **갱신** 버튼을 씁니다.
 
 ## 문서
 

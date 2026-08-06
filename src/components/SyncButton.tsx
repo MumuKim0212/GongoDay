@@ -3,13 +3,18 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { syncAction } from "@/app/admin/[[...slug]]/actions";
+
 /**
- * 수동 수집 트리거 (F-05).
+ * 수동 수집 트리거 (F-05) — **운영 화면 전용이다.**
  *
- * 크론에 의존하지 않는다 — Vercel 플랜 제약과 무관하고 채점자가 직접 눌러 확인할 수 있다 (§4.3).
+ * 평소 수집은 매시간 크론이 하므로 사용자는 이 버튼을 누를 일이 없다. 여기 남겨둔 이유는
+ * 초기 적재처럼 지금 당장 돌려야 할 때가 있어서다.
+ *
  * 한 번에 10페이지씩이라 전량을 받으려면 여러 번 눌러야 하고, 남은 페이지 수를 표시해준다.
+ * 그냥 두면 크론이 몇 시간에 걸쳐 같은 일을 마저 한다.
  */
-export function SyncButton() {
+export function SyncButton({ slug }: { slug: string[] | undefined }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -18,19 +23,14 @@ export function SyncButton() {
     setBusy(source);
     setMsg(null);
     try {
-      const res = await fetch("/api/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source }),
-      });
-      const j = await res.json();
-      if (j.error) {
+      const r = await syncAction(slug, source);
+      if (r.error) {
         // 수집 실패는 알리기만 한다. 기존 목록은 그대로 보인다 (§7)
-        setMsg(`갱신 실패: ${j.error}`);
-      } else if (j.done) {
-        setMsg(`${j.upserted}건 갱신 완료`);
+        setMsg(`갱신 실패: ${r.error}`);
+      } else if (r.done) {
+        setMsg(`${r.upserted}건 갱신 완료`);
       } else {
-        setMsg(`${j.upserted}건 저장 · ${j.totalPages - j.lastCompleted}페이지 남음 (다시 누르세요)`);
+        setMsg(`${r.upserted}건 저장 · ${r.totalPages - r.lastCompleted}페이지 남음 (다시 누르세요)`);
       }
       router.refresh();
     } catch {

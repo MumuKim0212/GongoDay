@@ -96,6 +96,8 @@ export function envStatus(): Array<{ key: string; set: boolean; server: boolean 
     { key: "GEMINI_API_KEY", set: Boolean(process.env.GEMINI_API_KEY), server: true },
     { key: "YOUTH_API_KEY", set: Boolean(process.env.YOUTH_API_KEY), server: true },
     { key: "GOV24_API_KEY", set: Boolean(process.env.GOV24_API_KEY), server: true },
+    // 없으면 매시간 크론이 401로 튕긴다 — 수집이 소리 없이 멈추는 경로라 여기 띄운다
+    { key: "CRON_SECRET", set: Boolean(process.env.CRON_SECRET), server: true },
   ];
 }
 
