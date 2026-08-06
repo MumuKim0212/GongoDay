@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 import { ListControls } from "@/components/ListControls";
@@ -72,7 +73,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8">
       <header>
-        <h1 className="text-2xl font-bold">오늘공고</h1>
+        <div className="flex items-center gap-2">
+          <Image src="/logo.svg" alt="" width={28} height={28} priority />
+          <h1 className="text-2xl font-bold">오늘공고</h1>
+        </div>
         {/* REQ-05 + 이름 해석 고정 (F-32) — "오늘 올라온 공고"로 읽히면 안 된다 */}
         <p className="mt-1 text-gray-700 dark:text-gray-300">
           오늘, <strong>내가 신청할 수 있는</strong> 공고만.
