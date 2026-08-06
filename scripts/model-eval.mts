@@ -26,6 +26,9 @@ import {
   type PolicySourceFields,
 } from "../src/lib/verdict/prompt";
 import { validateVerdict } from "../src/lib/verdict/validate";
+// 응답 스키마는 프로덕션 것을 그대로 쓴다. 사본을 두면 필드를 늘렸을 때 실측만 옛 스키마로 돈다.
+import { RESPONSE_SCHEMA } from "../src/lib/verdict/gemini";
+import { scoreOf } from "../src/lib/verdict/score";
 import { checkGate, type PolicyConditions, type Profile } from "../src/lib/verdict/gate";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -41,12 +44,14 @@ const env = Object.fromEntries(
 /**
  * 대표군. **`-preview` 붙은 것은 뺐다** — 8/9 제출물이라 조용히 사라지면 곤란하다.
  * 두 세대(2.5 / 3.x) × 두 티어(flash / flash-lite)를 걸치게 골랐다.
+ *
+ * 프롬프트만 고친 뒤 확정 모델을 다시 잴 때는 목록을 줄인다:
+ * `MODELS=gemini-3.5-flash npx tsx scripts/model-eval.mts`
  */
-const MODELS = [
-  "gemini-3.5-flash-lite",
-  "gemini-3.5-flash",
-  "gemini-3.6-flash",
-];
+const MODELS = (process.env.MODELS ?? "gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.6-flash")
+  .split(",")
+  .map((m) => m.trim())
+  .filter(Boolean);
 
 const SAMPLE_SIZE = 30;
 const DETERMINISM_SIZE = 10;
@@ -79,17 +84,6 @@ if (PROFILE_TEXT !== MEASURED_PROFILE_TEXT) {
   console.error(`실측:\n${MEASURED_PROFILE_TEXT}\n\n현재:\n${PROFILE_TEXT}`);
   process.exit(1);
 }
-
-const RESPONSE_SCHEMA = {
-  type: "OBJECT",
-  properties: {
-    verdict: { type: "STRING", enum: ["eligible", "unclear", "ineligible"] },
-    reason: { type: "STRING" },
-    quote: { type: "STRING" },
-    blockers: { type: "ARRAY", items: { type: "STRING" } },
-  },
-  required: ["verdict", "reason", "quote", "blockers"],
-};
 
 type Row = PolicySourceFields & PolicyConditions & { id: string; source: string; categories: string[] };
 
@@ -215,16 +209,24 @@ console.log(
 );
 console.log(`모델 ${MODELS.length}개 × ${sample.length}건 + 결정론 재실행 ${DETERMINISM_SIZE}건\n`);
 
-type Result = { verdict: string | null; quoteOk: boolean; ms: number; error: string | null };
+type Result = {
+  verdict: string | null;
+  quoteOk: boolean;
+  ms: number;
+  error: string | null;
+  /** 5단계 점수의 재료 (§5.6). 항목이 비거나 뭉뚱그려지면 점수가 무의미해진다 */
+  checks: string[];
+  score: number | null;
+};
 const byModel = new Map<string, Result[]>();
 const verdictsByModel = new Map<string, (string | null)[]>();
 
 for (const model of MODELS) {
   const results = await mapLimit(texts, CONCURRENCY, async (sourceText) => {
     const { ms, error, raw } = await callModel(model, sourceText);
-    if (error !== null) return { verdict: null, quoteOk: false, ms, error };
+    if (error !== null) return { verdict: null, quoteOk: false, ms, error, checks: [], score: null };
     const v = validateVerdict(raw, sourceText);
-    return { verdict: v.verdict, quoteOk: v.quote_verified, ms, error: null };
+    return { verdict: v.verdict, quoteOk: v.quote_verified, ms, error: null, checks: v.checks, score: scoreOf(v) };
   });
 
   // 결정론 — 같은 입력을 한 번 더
@@ -245,7 +247,18 @@ for (const model of MODELS) {
   console.log(`   호출 실패        ${results.filter((r) => r.error !== null).length}건 ${[...new Set(results.map((r) => r.error).filter(Boolean))].join(", ")}`);
   console.log(`   판정 분포        해당 ${results.filter((r) => r.verdict === "eligible").length} · 애매 ${results.filter((r) => r.verdict === "unclear").length} · 아님 ${results.filter((r) => r.verdict === "ineligible").length}`);
   console.log(`   지연 p50/p95/max ${quantile(lat, 0.5)} / ${quantile(lat, 0.95)} / ${Math.max(0, ...lat)} ms`);
-  console.log(`   결정론(2회 동일) ${pct(stable, DETERMINISM_SIZE)}\n`);
+  const scored = results.filter((r) => r.score !== null);
+  const dist = [5, 4, 3, 2, 1].map((n) => `${n}점 ${scored.filter((r) => r.score === n).length}`).join(" · ");
+  const unclear = results.filter((r) => r.verdict === "unclear");
+  const avgChecks = unclear.length === 0 ? 0 : unclear.reduce((a, r) => a + r.checks.length, 0) / unclear.length;
+  console.log(`   점수 분포        ${dist}`);
+  console.log(
+    `   확인 항목        애매 ${unclear.length}건 평균 ${avgChecks.toFixed(1)}개 · 빈 건 ${unclear.filter((r) => r.checks.length === 0).length}`,
+  );
+  console.log(`   결정론(2회 동일) ${pct(stable, DETERMINISM_SIZE)}`);
+  // 점수의 근거라 눈으로 봐야 한다 — 뭉뚱그린 항목("자격 요건 충족 여부")이 섞이면 점수가 무의미하다
+  for (const r of unclear.slice(0, 8)) console.log(`     · ${r.checks.join(" / ") || "(빈 배열)"}`);
+  console.log();
 }
 
 // 모델 간 판정 불일치 — 전원 일치하지 않는 건이 몇 개인가

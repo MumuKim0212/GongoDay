@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { VerdictBadge } from "@/components/badges";
+import { ScoreBadge } from "@/components/badges";
 import { QuoteHighlight } from "@/components/QuoteHighlight";
 import { CATEGORY_LABELS, type Category } from "@/lib/sources/category";
 import { createClient } from "@/lib/supabase/server";
@@ -9,6 +9,7 @@ import type { Profile } from "@/lib/verdict/gate";
 import { locateQuote } from "@/lib/verdict/normalize";
 import { buildSourceText, type PolicySourceFields } from "@/lib/verdict/prompt";
 import { SIGNATURE_COLUMNS, profileSignature } from "@/lib/verdict/signature";
+import { SCORE_HINTS, scoreOf } from "@/lib/verdict/score";
 import type { DecidedVerdict } from "@/lib/verdict/validate";
 
 import { toggleScrap } from "./actions";
@@ -75,7 +76,7 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
   const { data: verdictRow } = user && profile
     ? await supabase
         .from("verdicts")
-        .select("verdict, decided_by, reason, quote, quote_verified, blockers")
+        .select("verdict, decided_by, reason, quote, quote_verified, blockers, checks")
         .eq("user_id", user.id)
         .eq("policy_id", policy.id)
         .eq("profile_signature", profileSignature(profile))
@@ -158,9 +159,28 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
         {verdict ? (
           <>
             <div className="flex flex-wrap items-center gap-2">
-              <VerdictBadge verdict={verdict.verdict} decidedBy={verdict.decided_by} />
+              <ScoreBadge
+                score={scoreOf(verdict)}
+                checkCount={verdict.checks.length}
+                decidedBy={verdict.decided_by}
+              />
               {verdict.reason ? <p className="text-sm">{verdict.reason}</p> : null}
             </div>
+            <p className="mt-1.5 text-xs text-gray-500">{SCORE_HINTS[scoreOf(verdict)]}</p>
+
+            {/* 점수의 근거 (§5.6). 목록 카드와 같은 목록을 보여준다 */}
+            {verdict.checks.length > 0 ? (
+              <div className="mt-2 rounded bg-gray-50 p-3 dark:bg-gray-900">
+                <p className="text-sm font-medium">확인이 필요한 것</p>
+                <ul className="mt-1 space-y-0.5">
+                  {verdict.checks.map((c) => (
+                    <li key={c} className="text-sm text-gray-700 dark:text-gray-300">
+                      · {c}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {verdict.blockers.length > 0 ? (
               <ul className="mt-2 space-y-0.5">
                 {verdict.blockers.map((b) => (

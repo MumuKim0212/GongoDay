@@ -165,6 +165,22 @@ export default async function AdminPage({ params }: PageProps<"/admin/[[...slug]
                 이 수가 늘면 프롬프트나 모델을 다시 봐야 합니다. 코드 게이트 판정에는 인용이 없습니다.
               </p>
 
+              <h3 className="mt-5 text-sm font-medium">점수 분포</h3>
+              <Bars
+                rows={stats.verdicts.scores.map((s) => ({
+                  ...s,
+                  hint: pct(s.count, stats.verdicts.scoreSample),
+                }))}
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                점수는 저장하지 않고 <code>checks</code> 길이에서 유도합니다(§5.6). 그래서 집계 쿼리로 세지 못하고
+                판정 {fmt(stats.verdicts.scoreSample)}건을 받아서 셌습니다
+                {(stats.verdicts.scoreSample ?? 0) < (stats.verdicts.total ?? 0)
+                  ? " — 전체보다 적으면 표본 상한에서 잘린 것입니다."
+                  : " (전수)."}{" "}
+                프롬프트를 바꾸기 전에 저장된 판정은 <code>checks</code>가 비어 2점으로 잡힙니다.
+              </p>
+
               <h3 className="mt-5 text-sm font-medium">결과 분포</h3>
               <Bars rows={stats.verdicts.byVerdict.map((v) => ({ ...v, hint: pct(v.count, stats.verdicts.total) }))} />
               <p className="mt-1 text-xs text-gray-500">

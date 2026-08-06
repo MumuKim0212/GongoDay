@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import type { PolicyListRow } from "@/lib/policies/query";
-import type { DecidedVerdict, Verdict } from "@/lib/verdict/validate";
+import { scoreOf, type Score } from "@/lib/verdict/score";
+import type { DecidedVerdict } from "@/lib/verdict/validate";
 
 import { PolicyCard } from "./PolicyCard";
 
@@ -19,15 +20,12 @@ import { PolicyCard } from "./PolicyCard";
 /** 라우트 상한(60초)보다 짧게 잡는다. 넘기면 요청분을 '애매'로 끝내고 화면을 돌려준다 (§7) */
 const CLIENT_TIMEOUT_MS = 45_000;
 
-/** 판정 후 **현재 페이지 안에서만** 다시 정렬한다 (§6.1). 미판정은 '아님'보다 앞이다. */
-const RANK: Record<Verdict, number> = { eligible: 0, unclear: 1, ineligible: 3 };
-const UNJUDGED_RANK = 2;
-
-const VERDICT_NAME: Record<Verdict, string> = {
-  eligible: "해당",
-  unclear: "애매",
-  ineligible: "아님",
-};
+/**
+ * 판정 후 **현재 페이지 안에서만** 다시 정렬한다 (§6.1). 점수가 높은 것부터다.
+ * 미판정은 '조건 미기재'(2점)보다 뒤, '아님'(1점)보다 앞이다 — 아직 모르는 것을 확정된 탈락보다
+ * 뒤로 보낼 이유는 없다.
+ */
+const UNJUDGED_RANK = 3.5;
 
 type VerdictMap = Record<string, DecidedVerdict>;
 
@@ -50,7 +48,7 @@ export function PolicyList({
   const ordered = useMemo(() => {
     const rank = (id: string) => {
       const v = verdicts[id];
-      return v ? RANK[v.verdict] : UNJUDGED_RANK;
+      return v ? 5 - scoreOf(v) : UNJUDGED_RANK;
     };
     return [...rows].sort((a, b) => rank(a.id) - rank(b.id));
   }, [rows, verdicts]);
@@ -98,6 +96,9 @@ export function PolicyList({
               quote: null,
               quote_verified: false,
               blockers: [],
+              // 확인 항목이 비면 2점('조건 미기재')이 된다. 판정을 못 한 카드가
+              // 확정된 3·4점보다 뒤로 가는 편이 맞다 — 아는 게 없으니까.
+              checks: [],
             };
           }
         }
@@ -155,11 +156,15 @@ export function PolicyList({
   );
 }
 
+/** 점수별 몇 건인지. 5점부터 적어서 "볼 게 있는지"가 맨 앞에 오게 한다. */
 function summarize(verdicts: VerdictMap): string {
-  const counts = { eligible: 0, unclear: 0, ineligible: 0 };
-  for (const v of Object.values(verdicts)) counts[v.verdict]++;
-  return (Object.keys(counts) as Verdict[])
-    .filter((k) => counts[k] > 0)
-    .map((k) => `${VERDICT_NAME[k]} ${counts[k]}`)
+  const counts = new Map<Score, number>();
+  for (const v of Object.values(verdicts)) {
+    const s = scoreOf(v);
+    counts.set(s, (counts.get(s) ?? 0) + 1);
+  }
+  return ([5, 4, 3, 2, 1] as Score[])
+    .filter((s) => counts.has(s))
+    .map((s) => `${s}점 ${counts.get(s)}`)
     .join(" · ");
 }

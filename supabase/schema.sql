@@ -95,6 +95,8 @@ create table if not exists verdicts (
   quote             text,            -- 원문 인용 (검증 통과분만) §7.4
   quote_verified    boolean not null default false,
   blockers          text[] not null default '{}',   -- 왜 아닌지 §7.5
+  -- 애매일 때 '무엇을 확인하면 판정이 갈리는지' §5.6. 5단계 점수가 이 배열의 길이에서 나온다
+  checks            text[] not null default '{}',
   created_at        timestamptz not null default now(),
 
   unique (policy_id, user_id, profile_signature)

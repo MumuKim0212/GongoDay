@@ -15,6 +15,8 @@ export type ValidatedVerdict = {
   quote: string | null;
   quote_verified: boolean;
   blockers: string[];
+  /** 애매일 때 '무엇을 확인하면 판정이 갈리는지' (§5.6). 5단계 점수가 이 길이에서 나온다 */
+  checks: string[];
   /** 원문(sourceText) 기준 하이라이트 구간 (§5.4) */
   highlight: { start: number; end: number } | null;
 };
@@ -32,12 +34,16 @@ export type DecidedVerdict = {
   quote: string | null;
   quote_verified: boolean;
   blockers: string[];
+  checks: string[];
 };
 
 const VERDICTS: string[] = ["eligible", "unclear", "ineligible"];
 
 /** 배지 아래 한 문장으로 들어간다 */
 const REASON_MAX = 200;
+
+/** 확인 항목 개수 상한. 카드에 다섯 줄이 붙으면 "확인하면 된다"가 아니라 "포기하라"로 읽힌다 */
+const CHECKS_MAX = 4;
 
 const UNREADABLE = "판정 결과를 읽지 못했습니다.";
 const QUOTE_NOT_FOUND = "근거를 원문에서 찾지 못했습니다.";
@@ -55,6 +61,12 @@ export function validateVerdict(raw: unknown, sourceText: string): ValidatedVerd
   // 3단 — 제어문자 제거 + 길이 상한. 잘라내고 통과시킨다
   const reason = sanitize(fields.reason);
   const blockers = toStringArray(fields.blockers).map(sanitize).filter((b) => b.length > 0);
+  // 확인 항목은 '애매'에서만 뜻이 있다. 모델이 eligible·ineligible에 붙여 보내도 버린다 —
+  // 점수가 이 길이에서 나오므로(§5.6) 남겨두면 5점 카드에 "확인 1개"가 붙는다.
+  const checks =
+    verdict === "unclear"
+      ? toStringArray(fields.checks).map(sanitize).filter((c) => c.length > 0).slice(0, CHECKS_MAX)
+      : [];
   const quote =
     typeof fields.quote === "string" && fields.quote.trim().length > 0 ? fields.quote : null;
 
@@ -69,11 +81,12 @@ export function validateVerdict(raw: unknown, sourceText: string): ValidatedVerd
       quote: null,
       quote_verified: false,
       blockers,
+      checks,
       highlight: null,
     };
   }
 
-  return { verdict, reason, quote, quote_verified: true, blockers, highlight };
+  return { verdict, reason, quote, quote_verified: true, blockers, checks, highlight };
 }
 
 function unclear(reason: string): ValidatedVerdict {
@@ -83,6 +96,7 @@ function unclear(reason: string): ValidatedVerdict {
     quote: null,
     quote_verified: false,
     blockers: [],
+    checks: [],
     highlight: null,
   };
 }

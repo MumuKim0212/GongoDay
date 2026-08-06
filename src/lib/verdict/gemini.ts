@@ -17,16 +17,22 @@ const TIMEOUT_MS = 15_000;
 
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
-/** `validate.ts`가 어차피 다시 검사한다 — 1단 검증을 모델 쪽에서 미리 걸러주는 장치일 뿐이다 (§7.4) */
-const RESPONSE_SCHEMA = {
+/**
+ * `validate.ts`가 어차피 다시 검사한다 — 1단 검증을 모델 쪽에서 미리 걸러주는 장치일 뿐이다 (§7.4).
+ *
+ * **`scripts/model-eval.mts`가 이걸 가져다 쓴다.** 예전엔 스크립트가 사본을 들고 있었는데,
+ * 여기에 `checks`를 추가했을 때 사본이 안 따라와서 실측이 통째로 빈 배열을 재는 사고가 났다.
+ */
+export const RESPONSE_SCHEMA = {
   type: "OBJECT",
   properties: {
     verdict: { type: "STRING", enum: ["eligible", "unclear", "ineligible"] },
     reason: { type: "STRING" },
     quote: { type: "STRING" },
     blockers: { type: "ARRAY", items: { type: "STRING" } },
+    checks: { type: "ARRAY", items: { type: "STRING" } },
   },
-  required: ["verdict", "reason", "quote", "blockers"],
+  required: ["verdict", "reason", "quote", "blockers", "checks"],
 };
 
 type GenerateContentResponse = {

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { CATEGORIES, CATEGORY_LABELS } from "@/lib/sources/category";
+import { scoreLabel, scoreOf, type Score } from "@/lib/verdict/score";
 import { CAPITAL_AREA_SIDOS, SIDO_NAMES } from "@/lib/sources/region";
 
 /**
@@ -77,6 +78,10 @@ export type AdminStats = {
     quoted: Num;
     /** '아님'인데 blockers가 빈 건수 — 카드에 남는 설명이 reason 한 줄뿐이다 (PRD §7.5) */
     ineligibleNoBlockers: Num;
+    /** 5단계 점수 분포 (§5.6). checks 길이가 필요해 집계 쿼리로는 안 되고 표본을 받아서 센다 */
+    scores: Slice[];
+    /** 점수 분포가 몇 건을 보고 센 것인지. total보다 작으면 잘린 것이다 */
+    scoreSample: Num;
     latestAt: string | null;
   };
   sync: SyncStatus[];
@@ -223,8 +228,35 @@ function fillCounts(db: SupabaseClient): Promise<FillRow[]> {
   return Promise.all(queries.map(async ([label, base, q]) => ({ label, base, count: await n(q()) })));
 }
 
+/** 점수 분포 표본 상한. 잘렸으면 화면이 그렇게 말한다 — 조용히 자르면 전수로 읽힌다. */
+const SCORE_SAMPLE_MAX = 5000;
+
+/**
+ * 점수는 저장하지 않고 `checks` 길이에서 유도한다 (§5.6). PostgREST로는 배열 길이를 못 세므로
+ * 판정 행을 상한까지 받아 여기서 센다. 판정 내용은 읽지 않는다 — verdict와 checks 길이뿐이다.
+ */
+async function scoreCounts(db: SupabaseClient): Promise<{ scores: Slice[]; sample: Num }> {
+  const { data, error } = await db.from("verdicts").select("verdict, checks").limit(SCORE_SAMPLE_MAX);
+  if (error) return { scores: [], sample: null };
+
+  const rows = (data ?? []) as Array<{ verdict: string; checks: string[] }>;
+  const counted = new Map<Score, number>();
+  for (const r of rows) {
+    const s = scoreOf({ verdict: r.verdict as "eligible" | "unclear" | "ineligible", checks: r.checks ?? [] });
+    counted.set(s, (counted.get(s) ?? 0) + 1);
+  }
+
+  return {
+    scores: ([5, 4, 3, 2, 1] as Score[]).map((s) => ({
+      label: `${s}점 ${scoreLabel(s, 2)}`,
+      count: counted.get(s) ?? 0,
+    })),
+    sample: rows.length,
+  };
+}
+
 async function verdictCounts(db: SupabaseClient): Promise<AdminStats["verdicts"]> {
-  const [total, byVerdict, byDecider, ai, quoteVerified, quoted, ineligibleNoBlockers, latestAt] =
+  const [total, byVerdict, byDecider, ai, quoteVerified, quoted, ineligibleNoBlockers, latestAt, scored] =
     await Promise.all([
       n(head(db, "verdicts")),
       Promise.all(
@@ -238,9 +270,21 @@ async function verdictCounts(db: SupabaseClient): Promise<AdminStats["verdicts"]
       n(head(db, "verdicts").not("quote", "is", null)),
       n(head(db, "verdicts").eq("verdict", "ineligible").eq("blockers", "{}")),
       latest(db, "verdicts", "created_at"),
+      scoreCounts(db),
     ]);
 
-  return { total, byVerdict, byDecider, ai, quoteVerified, quoted, ineligibleNoBlockers, latestAt };
+  return {
+    total,
+    byVerdict,
+    byDecider,
+    ai,
+    quoteVerified,
+    quoted,
+    ineligibleNoBlockers,
+    latestAt,
+    scores: scored.scores,
+    scoreSample: scored.sample,
+  };
 }
 
 /**

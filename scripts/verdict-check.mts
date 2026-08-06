@@ -14,6 +14,7 @@ import {
 } from "../src/lib/verdict/prompt";
 import { profileSignature } from "../src/lib/verdict/signature";
 import { validateVerdict } from "../src/lib/verdict/validate";
+import { scoreOf } from "../src/lib/verdict/score";
 
 const pass: string[] = [];
 const fail: string[] = [];
@@ -331,6 +332,53 @@ check(
   dirtyBlockers.blockers.length === 1 && dirtyBlockers.blockers[0] === "무주택 세대",
   "blockers에서 빈 값·비문자열 제거",
   JSON.stringify(dirtyBlockers.blockers),
+);
+
+// ─── 7-b. checks → 5단계 점수 (§5.6) ─────────────────────────
+// 점수는 모델이 매기지 않고 여기서 유도된다. 유도 규칙이 깨지면 목록 순서가 통째로 어긋난다.
+
+const withChecks = (verdict: string, checks: unknown, quote: string | null = QUOTE) =>
+  validateVerdict({ verdict, reason: "이유", quote, blockers: [], checks }, SOURCE);
+
+const one = withChecks("unclear", ["최종학력 졸업 여부"]);
+check(one.checks.length === 1 && scoreOf(one) === 4, "애매 + 확인 1개 → 4점", String(scoreOf(one)));
+
+const two = withChecks("unclear", ["최종학력 졸업 여부", "무주택 여부"]);
+check(scoreOf(two) === 3, "애매 + 확인 2개 → 3점", String(scoreOf(two)));
+
+const none = withChecks("unclear", []);
+check(scoreOf(none) === 2, "애매 + 확인 0개 → 2점 (조건 미기재)", String(scoreOf(none)));
+
+// 프롬프트가 바뀌면 옛 판정은 다른 규칙으로 낸 답이다 (§5.5). 서명에 규칙 지문이 들어 있어야 캐시가 깨진다.
+check(/\|r=[0-9a-z]+$/.test(profileSignature(prof({}))), "서명 끝에 판정 규칙 지문이 붙는다", profileSignature(prof({})).split("|").at(-1)!);
+
+// 모델이 eligible에 확인 항목을 붙여 보내도 버린다 — 안 버리면 5점 카드에 "확인 1개"가 붙는다
+const eligibleWithChecks = withChecks("eligible", ["소득 확인"]);
+check(
+  eligibleWithChecks.checks.length === 0 && scoreOf(eligibleWithChecks) === 5,
+  "해당에 붙어 온 확인 항목은 버린다 → 5점",
+  `${eligibleWithChecks.checks.length}개 / ${scoreOf(eligibleWithChecks)}점`,
+);
+
+const ineligibleWithChecks = withChecks("ineligible", ["소득 확인"]);
+check(
+  ineligibleWithChecks.checks.length === 0 && scoreOf(ineligibleWithChecks) === 1,
+  "아님에 붙어 온 확인 항목은 버린다 → 1점",
+);
+
+// 인용이 원문에 없으면 unclear로 강등된다. 그때 남은 확인 항목이 점수를 만든다
+const downgraded = withChecks("unclear", ["소득 확인"], "원문에 없는 문장");
+check(
+  downgraded.verdict === "unclear" && !downgraded.quote_verified && scoreOf(downgraded) === 4,
+  "인용 검증 실패로 강등돼도 확인 항목은 남는다 → 4점",
+  String(scoreOf(downgraded)),
+);
+
+const dirtyChecks = withChecks("unclear", ["  졸업  여부  ", "", 42, "가", "나", "다", "라", "마"]);
+check(
+  dirtyChecks.checks.length === 4 && dirtyChecks.checks[0] === "졸업 여부",
+  "확인 항목 정리 + 개수 상한 4",
+  JSON.stringify(dirtyChecks.checks),
 );
 
 // ─── 8. profileSignature ──────────────────────────────────────

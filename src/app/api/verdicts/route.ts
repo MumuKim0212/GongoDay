@@ -115,7 +115,7 @@ export async function POST(req: Request) {
   // 캐시 — (정책, 사용자, 서명)이 같으면 다시 판정하지 않는다 (F-16). 서명이 다르면 안 잡히고 재판정된다.
   const { data: cached } = await supabase
     .from("verdicts")
-    .select("policy_id, verdict, decided_by, reason, quote, quote_verified, blockers")
+    .select("policy_id, verdict, decided_by, reason, quote, quote_verified, blockers, checks")
     .eq("user_id", user.id)
     .eq("profile_signature", signature)
     .in("policy_id", policyIds);
@@ -153,6 +153,7 @@ export async function POST(req: Request) {
         quote: null,
         quote_verified: false,
         blockers: gate.blockers,
+        checks: [],
       };
       verdicts[policy.id] = decided;
       toSave.push({ ...decided, policy_id: policy.id });
@@ -170,6 +171,7 @@ export async function POST(req: Request) {
         quote: null,
         quote_verified: false,
         blockers: [],
+        checks: [],
       };
       continue;
     }
@@ -199,6 +201,7 @@ export async function POST(req: Request) {
         quote: null,
         quote_verified: false,
         blockers: [],
+        checks: [],
       };
       continue;
     }
@@ -212,6 +215,7 @@ export async function POST(req: Request) {
       quote: v.quote,
       quote_verified: v.quote_verified,
       blockers: v.blockers,
+      checks: v.checks,
     };
     verdicts[policy.id] = decided;
     toSave.push({ ...decided, policy_id: policy.id });

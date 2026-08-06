@@ -3,9 +3,10 @@ import Link from "next/link";
 import { CATEGORY_LABELS, type Category } from "@/lib/sources/category";
 import type { PolicyListRow } from "@/lib/policies/query";
 import { normalize } from "@/lib/verdict/normalize";
+import { SCORE_HINTS, scoreOf } from "@/lib/verdict/score";
 import type { DecidedVerdict } from "@/lib/verdict/validate";
 
-import { CategoryBadge, SourceBadge, VerdictBadge, VerdictBadgeSkeleton } from "./badges";
+import { CategoryBadge, ScoreBadge, SourceBadge, VerdictBadgeSkeleton } from "./badges";
 
 /**
  * 목록 카드 (ARCHITECTURE §6.1)
@@ -24,15 +25,16 @@ export function PolicyCard({
   /** 이 카드의 판정을 기다리는 중 — 배지 자리에 스켈레톤을 둔다 (§7) */
   judging?: boolean;
 }) {
-  const dimmed = verdict?.verdict === "ineligible";
+  const score = verdict ? scoreOf(verdict) : null;
+  const dimmed = score === 1;
 
   return (
     <article
       className={`border-b border-gray-200 p-4 dark:border-gray-800 ${dimmed ? "opacity-60" : ""}`}
     >
       <div className="flex items-start gap-2">
-        {verdict ? (
-          <VerdictBadge verdict={verdict.verdict} decidedBy={verdict.decided_by} />
+        {verdict && score ? (
+          <ScoreBadge score={score} checkCount={verdict.checks.length} decidedBy={verdict.decided_by} />
         ) : judging ? (
           <VerdictBadgeSkeleton />
         ) : null}
@@ -76,6 +78,8 @@ function VerdictDetail({ verdict }: { verdict: DecidedVerdict }) {
   const shownQuote = verdict.quote && verdict.quote_verified ? verdict.quote : null;
   const quoteText = shownQuote === null ? "" : normalize(shownQuote).text;
   const blockers = verdict.blockers.filter((b) => !quoteText.includes(normalize(b).text));
+  // 확인 항목도 인용문을 그대로 다시 적어 오는 일이 있다. 같은 문장을 두 번 보여주지 않는다.
+  const checks = verdict.checks.filter((c) => !quoteText.includes(normalize(c).text));
 
   return (
     <div className="mt-2 text-sm">
@@ -88,6 +92,25 @@ function VerdictDetail({ verdict }: { verdict: DecidedVerdict }) {
         <blockquote className="mt-1.5 border-l-2 border-gray-300 pl-2 text-xs text-gray-600 dark:border-gray-600 dark:text-gray-400">
           {shownQuote}
         </blockquote>
+      ) : null}
+
+      {/*
+        점수의 근거다 (§5.6). "왜 4점인지"가 이 목록이고, 사용자가 다음에 할 일이기도 하다 —
+        애매를 "판단 실패"가 아니라 "이것만 확인하면 된다"로 읽히게 하는 것이 이 블록의 목적이다.
+      */}
+      {checks.length > 0 ? (
+        <div className="mt-1.5 rounded bg-gray-50 p-2 dark:bg-gray-900">
+          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">확인이 필요한 것</p>
+          <ul className="mt-0.5 space-y-0.5">
+            {checks.map((c) => (
+              <li key={c} className="text-xs text-gray-600 dark:text-gray-400">
+                · {c}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : verdict.verdict === "unclear" ? (
+        <p className="mt-1.5 text-xs text-gray-500">{SCORE_HINTS[2]}</p>
       ) : null}
 
       {blockers.length > 0 ? (
