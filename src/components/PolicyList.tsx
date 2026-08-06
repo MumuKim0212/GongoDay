@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { PolicyListRow } from "@/lib/policies/query";
 import { parseView } from "@/lib/policies/view";
@@ -31,14 +31,35 @@ const UNJUDGED_RANK = 3.5;
 
 type VerdictMap = Record<string, DecidedVerdict>;
 
+/**
+ * 이 문서가 이번 방문에 받은 판정
+ *
+ * **상세에서 뒤로 돌아오면 이 트리가 다시 마운트된다.** 클라이언트 캐시가 돌려주는 RSC
+ * 페이로드는 목록을 처음 그릴 때 만들어진 것이라, 그 뒤에 누른 판정은 `initialVerdicts`에
+ * 없다 — 방금 본 배지가 사라진다. 저장은 이미 끝났으므로 서버를 다시 부를 이유는 없고,
+ * 문서가 살아 있는 동안 여기서 다시 채운다. 새로고침하면 서버가 내려준 것으로 돌아간다.
+ *
+ * **서명으로 묶는다.** 조건을 고치면 옛 판정은 지금 조건의 판정이 아니다 — 서명을 빼면
+ * 프로필을 저장한 뒤에도 옛 배지가 그대로 붙어 새 조건으로 판정한 것처럼 보인다 (§5.5).
+ *
+ * **타임아웃분은 넣지 않는다.** 서버에 저장하지 않은 '판정 못 함'까지 되살리면 다시 눌러
+ * 지우는 길이 막힌다 — 아래 `catch`가 채우는 것은 화면 한 번 분량이다.
+ */
+let carried: { signature: string | null | undefined; map: VerdictMap } = {
+  signature: undefined,
+  map: {},
+};
+
 export function PolicyList({
   rows,
   initialVerdicts,
+  signature,
   hasSession,
   hasProfile,
 }: {
   rows: PolicyListRow[];
   initialVerdicts: VerdictMap;
+  signature: string | null;
   hasSession: boolean;
   hasProfile: boolean;
 }) {
@@ -46,9 +67,18 @@ export function PolicyList({
   // 서버를 다시 부르지 않고 이 훅이 다시 읽힌다 (§5.1). 상태를 여기 두면 토글과 어긋난다.
   const view = parseView(useSearchParams().get("view"));
 
-  const [verdicts, setVerdicts] = useState<VerdictMap>(initialVerdicts);
+  // 서버가 내려준 것이 우선이다 — 서명으로 걸러 읽은 값이라 이쪽이 사실에 가깝다.
+  const [verdicts, setVerdicts] = useState<VerdictMap>(() =>
+    signature === carried.signature ? { ...carried.map, ...initialVerdicts } : initialVerdicts,
+  );
   const [judging, setJudging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+
+  // 쓰기는 렌더 밖에서만 한다. 조건이 바뀌었으면 들고 있던 것을 버린다.
+  useEffect(() => {
+    if (signature !== carried.signature) carried = { signature, map: {} };
+    carried.map = { ...carried.map, ...initialVerdicts };
+  }, [signature, initialVerdicts]);
 
   // 정렬은 판정이 하나라도 있을 때만. 정렬 자체는 안정 정렬이라 동률은 최신순(서버 정렬) 그대로다.
   const ordered = useMemo(() => {
@@ -87,6 +117,7 @@ export function PolicyList({
 
       const next = body.verdicts;
       setVerdicts((prev) => ({ ...prev, ...next }));
+      carried.map = { ...carried.map, ...next };
       setNote(summarize(next));
     } catch {
       // 라우트 전체 타임아웃·네트워크 실패 (§7). 저장하지 않았으므로 다시 누르면 재시도된다.

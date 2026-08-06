@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { BackToList } from "@/components/BackToList";
 import { CategoryBadge, ScoreBadge } from "@/components/badges";
 import { QuoteHighlight } from "@/components/QuoteHighlight";
 import { CATEGORY_LABELS, type Category } from "@/lib/sources/category";
@@ -215,9 +215,9 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
         ) : (
           <p className="text-compact">
             아직 판정하지 않은 정책입니다.{" "}
-            <Link href="/" className="text-accent-ink underline underline-offset-2">
+            <BackToList className="text-accent-ink underline underline-offset-2">
               목록
-            </Link>
+            </BackToList>
             에서 <strong>판정하기</strong>를 누르면 이 정책도 함께 판정됩니다.
           </p>
         )}
@@ -278,9 +278,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     // 읽는 화면이라 목록보다 좁다 — 한 줄이 길어지면 눈이 다음 줄 첫 글자를 놓친다 (§2.4)
     <main className="max-w-read mx-auto w-full px-4 py-8">
       {/* `px-0`으로 고스트 버튼의 안쪽 여백을 지워 본문 왼쪽 끝에 맞춘다 */}
-      <Link href="/" className="btn btn-ghost px-0">
-        ← 목록으로
-      </Link>
+      <BackToList className="btn btn-ghost px-0">← 목록으로</BackToList>
       <div className="mt-3">{children}</div>
     </main>
   );

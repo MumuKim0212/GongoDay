@@ -59,14 +59,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
     page: Math.max(1, Number.parseInt(one(sp.page) ?? "1", 10) || 1),
   };
 
+  // 목록이 이 서명으로 읽은 판정임을 `PolicyList`도 알아야 한다 — 조건이 바뀌면 들고 있던
+  // 판정을 버리는 기준이다 (§5.5).
+  const signature = profile === null ? null : profileSignature(profile);
+
   const { rows, filteredCount, totalCount, error } = await fetchPolicies(supabase, filters);
   const [verdicts, syncedAt] = await Promise.all([
-    fetchVerdicts(
-      supabase,
-      user?.id ?? null,
-      profile === null ? null : profileSignature(profile),
-      rows.map((r) => r.id),
-    ),
+    fetchVerdicts(supabase, user?.id ?? null, signature, rows.map((r) => r.id)),
     lastFullSync(supabase),
   ]);
 
@@ -154,6 +153,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
               key={rows.map((r) => r.id).join(",")}
               rows={rows}
               initialVerdicts={verdicts}
+              signature={signature}
               hasSession={user !== null}
               hasProfile={profile !== null}
             />

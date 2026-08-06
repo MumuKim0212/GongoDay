@@ -35,4 +35,9 @@ export async function toggleScrap(formData: FormData): Promise<void> {
   }
 
   revalidatePath(`/policies/${policyId}`);
+
+  // **목록도 이 값을 읽는다** — '스크랩만 보기'가 켜져 있으면 조회 대상 자체가 스크랩 목록이다.
+  // 상세에서 해제하고 뒤로 돌아가면 클라이언트 캐시의 옛 목록이 그대로 나오므로(§5.2 되돌아가기)
+  // 여기서 그 항목을 버린다. 스크랩을 눌렀을 때만 무효화되니 왕복은 값이 바뀐 경우로 한정된다.
+  revalidatePath("/");
 }

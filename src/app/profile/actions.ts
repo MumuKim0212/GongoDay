@@ -1,5 +1,7 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+
 import {
   BIRTH_YEAR_MIN,
   BUSINESS_STATUSES,
@@ -70,6 +72,17 @@ export async function saveProfile(_prev: SaveState, formData: FormData): Promise
   if (error) {
     return { ok: false, message: `저장하지 못했습니다: ${error.message}` };
   }
+
+  // **"목록이 이 조건으로 좁혀집니다"를 화면이 지켜야 한다.** `← 목록으로`는 정방향 이동이라
+  // 서버를 다시 부르지만, **브라우저 뒤로가기는 클라이언트 캐시의 옛 목록을 그대로 돌려준다** —
+  // 조건 카드·건수·목록이 저장 전 것으로 남아 안내문이 거짓이 된다.
+  //
+  // 범위가 `layout`인 이유는 **상세도 같이 상한다**는 것이다. 판정은 서명으로 읽으므로
+  // 조건을 고치면 상세의 판정 블록도 지금 조건의 것이 아니다 — 캐시에 남은 상세로 뒤로
+  // 돌아가면 옛 판정이 새 조건의 판정처럼 보인다 (§5.5). 루트 레이아웃이 전부를 감싸므로
+  // 이 한 줄이 캐시에 남은 화면을 모두 버린다. 서버 쪽은 전부 `force-dynamic`이라 버릴 것이 없다.
+  revalidatePath("/", "layout");
+
   return { ok: true, message: "저장했습니다. 목록이 이 조건으로 좁혀집니다." };
 }
 
