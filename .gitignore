@@ -46,3 +46,6 @@ next-env.d.ts
 
 # 모델 평가 원본 결과 (생성물)
 scripts/.model-eval-raw.json
+
+# 스크린샷 (생성물)
+shots/

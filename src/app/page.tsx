@@ -1,65 +1,239 @@
+import Link from "next/link";
+
+import { ListControls } from "@/components/ListControls";
+import { PolicyCard, type CardVerdict } from "@/components/PolicyCard";
+import { SyncButton } from "@/components/SyncButton";
+import { CATEGORIES, DEFAULT_CATEGORIES, type Category } from "@/lib/sources/category";
+import { PAGE_SIZE, defaultFilters, fetchPolicies, type ListFilters } from "@/lib/policies/query";
 import { createClient } from "@/lib/supabase/server";
 
-/**
- * 작업 0.5 완료 판정용 임시 화면. 작업 3에서 정책 목록으로 교체된다.
- *
- * 확인하는 것은 "서버가 세션을 보는가"다 (ARCHITECTURE §1.1).
- * getUser()만으로는 부족하다 — Postgres의 auth.uid()는 액세스 토큰의 클레임에서 나오므로
- * role이 authenticated이고 sub이 채워져 있는지까지 봐야 1차 필터와 RLS가 돈다고 말할 수 있다.
- */
-export default async function Home() {
+/** 매 요청 조회한다 — 프로필과 판정이 사용자마다 다르다. */
+export const dynamic = "force-dynamic";
+
+type Search = Record<string, string | string[] | undefined>;
+
+const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? null;
+
+export default async function Home({ searchParams }: { searchParams: Promise<Search> }) {
+  const sp = await searchParams;
   const supabase = await createClient();
 
+  // 세션이 없어도 목록은 보여야 한다 (§7 "익명 세션 생성 실패"). 프로필만 못 읽을 뿐이다.
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const { data: profile } = user
+    ? await supabase
+        .from("profiles")
+        .select("birth_year, region_sido, region_sigungu, interests")
+        .eq("id", user.id)
+        .maybeSingle()
+    : { data: null };
 
-  const claims = session ? decodeJwtClaims(session.access_token) : null;
-  const uidWorks = claims?.role === "authenticated" && Boolean(claims?.sub);
+  const filters: ListFilters = {
+    ...defaultFilters(),
+    birthYear: profile?.birth_year ?? null,
+    regionSido: profile?.region_sido ?? null,
+    regionSigungu: profile?.region_sigungu ?? null,
+    categories: parseCategories(one(sp.cat), profile?.interests),
+    q: one(sp.q),
+    source: one(sp.source) === "youth" ? "youth" : one(sp.source) === "gov24" ? "gov24" : null,
+    showAll: one(sp.all) === "1",
+    page: Math.max(1, Number.parseInt(one(sp.page) ?? "1", 10) || 1),
+  };
+
+  const { rows, filteredCount, totalCount, error } = await fetchPolicies(supabase, filters);
+  const [verdicts, syncedAt] = await Promise.all([
+    fetchVerdicts(supabase, user?.id ?? null, rows.map((r) => r.id)),
+    fetchLastSync(supabase),
+  ]);
+
+  const lastPage = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE));
 
   return (
-    <main className="mx-auto max-w-2xl p-8 font-mono text-sm">
-      <h1 className="mb-6 font-sans text-2xl font-bold">오늘공고 — 세션 점검</h1>
+    <main className="mx-auto w-full max-w-3xl px-4 py-8">
+      <header>
+        <h1 className="text-2xl font-bold">오늘공고</h1>
+        {/* REQ-05 + 이름 해석 고정 (F-32) — "오늘 올라온 공고"로 읽히면 안 된다 */}
+        <p className="mt-1 text-gray-700 dark:text-gray-300">
+          오늘, <strong>내가 신청할 수 있는</strong> 공고만.
+        </p>
+        <p className="mt-0.5 text-sm text-gray-600 dark:text-gray-400">
+          조건을 한 번 넣어두면 온통청년·정부24의 지원정책을 한 곳에서 걸러 보여줍니다.
+        </p>
+      </header>
 
-      <dl className="space-y-2">
-        <Row label="서버가 본 user.id" value={user?.id ?? "(없음)"} />
-        <Row label="익명 사용자인가" value={user ? String(user.is_anonymous) : "(없음)"} />
-        <Row label="JWT role" value={claims?.role ?? "(없음)"} />
-        <Row label="JWT sub" value={claims?.sub ?? "(없음)"} />
-      </dl>
+      <section className="mt-5 flex flex-wrap items-center gap-2">
+        {profile ? (
+          <span className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white opacity-50 dark:bg-white dark:text-gray-900">
+            내 조건으로 판정하기 (준비 중)
+          </span>
+        ) : (
+          <Link
+            href="/profile"
+            className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white hover:opacity-90 dark:bg-white dark:text-gray-900"
+          >
+            내 조건 입력하기
+          </Link>
+        )}
+        <SyncButton />
+      </section>
 
-      <p
-        className={`mt-6 rounded p-3 font-sans ${
-          uidWorks ? "bg-green-100 text-green-900" : "bg-red-100 text-red-900"
-        }`}
-      >
-        {uidWorks
-          ? "통과 — 서버 컴포넌트에서 세션이 잡히고 auth.uid()가 이 sub 값을 반환한다."
-          : "실패 — 서버가 세션을 못 본다. proxy.ts와 Anonymous Sign-Ins 설정을 확인할 것."}
+      {/* 한 소스만 수집됐어도 있는 것만 보여준다 (§7) */}
+      <p className="mt-2 text-xs text-gray-500">
+        마지막 갱신 · 온통청년 {syncedAt.youth ?? "없음"} · 정부24 {syncedAt.gov24 ?? "없음"}
       </p>
+
+      <p className="mt-3 text-sm text-gray-600 dark:text-gray-400">
+        {filters.showAll ? (
+          <>전체 {totalCount.toLocaleString()}건</>
+        ) : (
+          <>
+            {/* "내 조건에 맞는"이라고 쓰면 AI 판정을 마친 것처럼 읽힌다 (§6.1) */}
+            코드 조건 통과 <strong>{filteredCount.toLocaleString()}</strong>건
+            <span className="text-gray-400"> / 전체 {totalCount.toLocaleString()}건</span>
+          </>
+        )}
+        {!profile ? (
+          <span className="ml-1 text-gray-500">— 조건을 넣으면 더 좁혀집니다</span>
+        ) : null}
+      </p>
+
+      <section className="mt-3">
+        <ListControls
+          categories={filters.categories}
+          q={filters.q}
+          source={filters.source}
+          showAll={filters.showAll}
+        />
+      </section>
+
+      <section className="mt-5 border-t border-gray-200 dark:border-gray-800">
+        {error ? (
+          <EmptyState
+            title="목록을 불러오지 못했습니다"
+            body="잠시 후 새로고침해 주세요. 수집된 데이터는 그대로 남아 있습니다."
+          />
+        ) : rows.length > 0 ? (
+          rows.map((p) => <PolicyCard key={p.id} policy={p} verdict={verdicts.get(p.id) ?? null} />)
+        ) : totalCount === 0 ? (
+          <EmptyState
+            title="아직 수집된 정책이 없습니다"
+            body="위의 갱신 버튼을 눌러 정책을 받아오세요."
+          />
+        ) : (
+          <EmptyState
+            title="이 조건에 맞는 정책이 없습니다"
+            body="분야를 더 켜거나 '전체 보기'를 켜면 걸러진 정책도 볼 수 있습니다."
+          />
+        )}
+      </section>
+
+      {lastPage > 1 && rows.length > 0 ? (
+        <Pager page={filters.page} lastPage={lastPage} sp={sp} />
+      ) : null}
     </main>
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+/**
+ * 분야 선택은 URL이 우선이고, 없으면 프로필의 관심분야, 그것도 없으면 기본 2개다 (PRD §6.1).
+ * `none`은 "전부 껐다"를 뜻한다 — 빈 문자열로는 '미지정'과 구분되지 않는다.
+ */
+function parseCategories(raw: string | null, interests: string[] | undefined): Category[] {
+  if (raw === "none") return [];
+  const source = raw ? raw.split(",") : (interests ?? DEFAULT_CATEGORIES);
+  const valid = source.filter((c): c is Category => (CATEGORIES as readonly string[]).includes(c));
+  return valid.length > 0 ? valid : DEFAULT_CATEGORIES;
+}
+
+/**
+ * 저장된 판정을 함께 읽는다 (F-16). 이 화면은 Gemini를 부르지 않는다 —
+ * 한 번 판정한 페이지를 다시 열어도 호출이 0건이어야 한다 (§6.1).
+ */
+async function fetchVerdicts(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string | null,
+  policyIds: string[],
+): Promise<Map<string, CardVerdict>> {
+  if (!userId || policyIds.length === 0) return new Map();
+
+  const { data } = await supabase
+    .from("verdicts")
+    .select("policy_id, verdict, decided_by, reason, quote, quote_verified, blockers")
+    .eq("user_id", userId)
+    .in("policy_id", policyIds);
+
+  const map = new Map<string, CardVerdict>();
+  for (const v of data ?? []) map.set(v.policy_id, v as unknown as CardVerdict);
+  return map;
+}
+
+/** 소스별 마지막 성공 시각 (F-05). 실패한 실행은 "갱신됨"으로 읽히면 안 되므로 제외한다. */
+async function fetchLastSync(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<{ youth: string | null; gov24: string | null }> {
+  const { data } = await supabase
+    .from("sync_runs")
+    .select("source, finished_at")
+    .is("error", null)
+    .not("finished_at", "is", null)
+    .order("finished_at", { ascending: false })
+    .limit(50);
+
+  const out: { youth: string | null; gov24: string | null } = { youth: null, gov24: null };
+  for (const r of data ?? []) {
+    const key = r.source as "youth" | "gov24";
+    if (key in out && out[key] === null) {
+      out[key] = new Date(r.finished_at as string).toLocaleString("ko-KR", {
+        dateStyle: "short",
+        timeStyle: "short",
+      });
+    }
+  }
+  return out;
+}
+
+function EmptyState({ title, body }: { title: string; body: string }) {
   return (
-    <div className="flex gap-3">
-      <dt className="w-40 shrink-0 font-sans text-gray-500">{label}</dt>
-      <dd className="break-all">{value}</dd>
+    <div className="py-16 text-center">
+      <p className="font-medium">{title}</p>
+      <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{body}</p>
     </div>
   );
 }
 
-function decodeJwtClaims(token: string): { sub?: string; role?: string } | null {
-  const payload = token.split(".")[1];
-  if (!payload) return null;
-  try {
-    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-  } catch {
-    return null;
-  }
+function Pager({ page, lastPage, sp }: { page: number; lastPage: number; sp: Search }) {
+  const href = (p: number) => {
+    const next = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) {
+      const val = one(v);
+      if (val !== null && k !== "page") next.set(k, val);
+    }
+    if (p > 1) next.set("page", String(p));
+    return next.toString() ? `/?${next}` : "/";
+  };
+
+  return (
+    <nav className="mt-6 flex items-center justify-between text-sm">
+      {page > 1 ? (
+        <Link href={href(page - 1)} className="underline underline-offset-2">
+          ← 이전
+        </Link>
+      ) : (
+        <span />
+      )}
+      <span className="text-gray-500">
+        {page} / {lastPage}
+      </span>
+      {page < lastPage ? (
+        <Link href={href(page + 1)} className="underline underline-offset-2">
+          다음 →
+        </Link>
+      ) : (
+        <span />
+      )}
+    </nav>
+  );
 }
