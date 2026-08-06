@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { ListControls } from "@/components/ListControls";
 import { PolicyList } from "@/components/PolicyList";
+import { ViewToggle } from "@/components/ViewToggle";
 import { CATEGORIES, DEFAULT_CATEGORIES, type Category } from "@/lib/sources/category";
 import { SIDO_NAMES } from "@/lib/sources/region";
 import { PAGE_SIZE, defaultFilters, fetchPolicies, type ListFilters } from "@/lib/policies/query";
@@ -16,9 +17,6 @@ import type { DecidedVerdict } from "@/lib/verdict/validate";
 export const dynamic = "force-dynamic";
 
 type Search = Record<string, string | string[] | undefined>;
-
-/** 타일 그리드가 기본이다 (§5.1). 목록은 판정 근거까지 펼쳐 보고 싶을 때 고른다. */
-type View = "tile" | "list";
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? null;
 
@@ -60,9 +58,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
     showAll: one(sp.all) === "1",
     page: Math.max(1, Number.parseInt(one(sp.page) ?? "1", 10) || 1),
   };
-
-  // 보기 방식은 필터가 아니라 표시 방식이라 `filters`에 넣지 않는다 — 조회는 그대로다.
-  const view: View = one(sp.view) === "list" ? "list" : "tile";
 
   const { rows, filteredCount, totalCount, error } = await fetchPolicies(supabase, filters);
   const [verdicts, syncedAt] = await Promise.all([
@@ -133,7 +128,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
         {/* 둘러보기 머리줄 — 제목 옆이 보기 전환 자리다 */}
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-title">공고 둘러보기</h2>
-          <ViewToggle view={view} sp={sp} />
+          <ViewToggle />
         </div>
 
         <section className="mt-3">
@@ -161,7 +156,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
               initialVerdicts={verdicts}
               hasSession={user !== null}
               hasProfile={profile !== null}
-              view={view}
             />
           ) : scrapsOnly ? (
             <EmptyState
@@ -324,76 +318,6 @@ function profileSummary(profile: Profile & { interests: string[] }): string[] {
 
   if (profile.interests.length > 0) out.push(`관심 ${profile.interests.length}분야`);
   return out;
-}
-
-/**
- * 타일 ↔ 목록 (§5.1)
- *
- * 상태를 URL에 둔다 — 필터와 같은 이유다(ListControls). 서버가 그리므로 첫 화면이 깜빡이지 않고,
- * 뒤로가기와 공유가 그냥 된다. **기본값(`tile`)은 URL에 적지 않는다** — 주소가 깨끗해야
- * `/`와 `/?view=tile`이 같은 화면이라는 게 분명해진다.
- */
-function ViewToggle({ view, sp }: { view: View; sp: Search }) {
-  const href = (v: View) => {
-    const next = new URLSearchParams();
-    for (const [k, val] of Object.entries(sp)) {
-      const s = one(val);
-      if (s !== null && k !== "view") next.set(k, s);
-    }
-    if (v === "list") next.set("view", "list");
-    return next.toString() ? `/?${next}` : "/";
-  };
-
-  const items = [
-    { v: "tile" as const, label: "타일로 보기", icon: <TileIcon /> },
-    { v: "list" as const, label: "목록으로 보기", icon: <ListIcon /> },
-  ];
-
-  return (
-    <nav aria-label="보기 방식" className="border-divider flex items-center gap-1 rounded-pill border p-1">
-      {items.map((it) => {
-        const on = view === it.v;
-        return (
-          <Link
-            key={it.v}
-            href={href(it.v)}
-            aria-label={it.label}
-            // 링크라 `aria-pressed`를 쓸 수 없다. 지금 보고 있는 쪽을 `aria-current`가 말한다
-            aria-current={on ? "true" : undefined}
-            className={`flex size-8 items-center justify-center rounded-pill transition-colors ${
-              on
-                ? "bg-[var(--accent-ink)] text-[var(--accent-on)]"
-                : "text-muted hover:bg-[color-mix(in_srgb,var(--ink)_7%,transparent)]"
-            }`}
-          >
-            {it.icon}
-          </Link>
-        );
-      })}
-    </nav>
-  );
-}
-
-/* 아이콘 두 개. 선 굵기와 반경은 로고와 같은 값이다 — 크롬이 한 벌로 보여야 한다 */
-function TileIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <rect x="1" y="1" width="6" height="6" rx="1.5" />
-      <rect x="9" y="1" width="6" height="6" rx="1.5" />
-      <rect x="1" y="9" width="6" height="6" rx="1.5" />
-      <rect x="9" y="9" width="6" height="6" rx="1.5" />
-    </svg>
-  );
-}
-
-function ListIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <rect x="1" y="2" width="14" height="3.2" rx="1.5" />
-      <rect x="1" y="6.9" width="14" height="3.2" rx="1.5" />
-      <rect x="1" y="11.8" width="14" height="3.2" rx="1.5" />
-    </svg>
-  );
 }
 
 /** 박스를 두르지 않고 여백으로 세운다 (원칙 1). 가운데 정렬도 하지 않는다 — 페이지는 왼쪽 정렬이다 (§4.7) */

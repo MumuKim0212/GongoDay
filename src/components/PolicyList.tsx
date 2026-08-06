@@ -1,8 +1,10 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import type { PolicyListRow } from "@/lib/policies/query";
+import { parseView } from "@/lib/policies/view";
 import { scoreOf, type Score } from "@/lib/verdict/score";
 import type { DecidedVerdict } from "@/lib/verdict/validate";
 
@@ -34,15 +36,16 @@ export function PolicyList({
   initialVerdicts,
   hasSession,
   hasProfile,
-  view,
 }: {
   rows: PolicyListRow[];
   initialVerdicts: VerdictMap;
   hasSession: boolean;
   hasProfile: boolean;
-  /** 타일 그리드 · 목록 (§5.1). URL이 들고 있으므로 이 컴포넌트는 상태를 갖지 않는다 */
-  view: "tile" | "list";
 }) {
+  // 보기 방식은 주소에서 읽는다 — `ViewToggle`이 `pushState`로 주소만 갈아끼우므로
+  // 서버를 다시 부르지 않고 이 훅이 다시 읽힌다 (§5.1). 상태를 여기 두면 토글과 어긋난다.
+  const view = parseView(useSearchParams().get("view"));
+
   const [verdicts, setVerdicts] = useState<VerdictMap>(initialVerdicts);
   const [judging, setJudging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
