@@ -111,6 +111,17 @@ export function buildProfileText(profile: Profile, refYear?: number): string {
     .join("\n");
 }
 
+/**
+ * 모델에 실제로 넘어가는 사용자 메시지.
+ *
+ * **틀을 바꾸면 §5.1.2 실측의 전제가 달라진다.** 그래서 프로덕션(`lib/verdict/gemini.ts`)과
+ * 실측 스크립트(`scripts/model-eval.mts`)가 이 함수 하나를 같이 쓴다 — 한쪽에만 손으로 적어두면
+ * 조립 함수가 없어서 났던 사고(§5.1.2 주석)가 조립 틀에서 그대로 되풀이된다.
+ */
+export function buildUserText(profileText: string, sourceText: string): string {
+  return `[사용자 조건]\n${profileText}\n\n[정책 원문]\n${sourceText}`;
+}
+
 /** 라벨을 모르는 코드는 버린다. 저장이 허용 목록을 거치므로(`app/profile/actions.ts`) 정상 경로에는 없다. */
 function codeLabel(code: string | null): string | null {
   return code === null ? null : (CODE_LABELS[code] ?? null);

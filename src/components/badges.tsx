@@ -55,6 +55,17 @@ export function VerdictBadge({
   );
 }
 
+/** 판정을 기다리는 동안 배지 자리를 지킨다 — 결과가 도착해도 카드가 튀지 않는다 (§7) */
+export function VerdictBadgeSkeleton() {
+  return (
+    <span
+      role="status"
+      aria-label="판정 중"
+      className="inline-flex h-[22px] w-14 shrink-0 animate-pulse rounded bg-gray-200 dark:bg-gray-800"
+    />
+  );
+}
+
 export function CategoryBadge({ label }: { label: string }) {
   return (
     <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400">

@@ -6,7 +6,12 @@
 // 판정 규칙을 고칠 때마다 다시 돌린다 — 게이트는 조용히 틀리는 종류라 화면상 구별되지 않는다.
 import { checkGate, type PolicyConditions, type Profile } from "../src/lib/verdict/gate";
 import { locateQuote } from "../src/lib/verdict/normalize";
-import { buildProfileText, buildSourceText, type PolicySourceFields } from "../src/lib/verdict/prompt";
+import {
+  buildProfileText,
+  buildSourceText,
+  buildUserText,
+  type PolicySourceFields,
+} from "../src/lib/verdict/prompt";
 import { profileSignature } from "../src/lib/verdict/signature";
 import { validateVerdict } from "../src/lib/verdict/validate";
 
@@ -102,6 +107,31 @@ check(
 check(
   !passes(policy({ eligibility_codes: { situation: ["JA0321"] } }), prof({ situations: ["JA0320"] })),
   "개인상황 교집합 없음 → 불일치",
+);
+
+// 블로커에 정책 대상이 한글로 적혀야 사용자가 자기 조건을 고쳐 되찾아올 수 있다 (§5.0.2의 회수 장치).
+const disabledOnly = blockersOf(
+  policy({ eligibility_codes: { situation: ["JA0328", "JA0329"] } }),
+  prof({ situations: ["JA0326"] }),
+);
+check(
+  disabledOnly.some((b) => b.includes("장애인") && b.includes("국가보훈대상자")),
+  "개인상황 블로커에 정책 대상이 한글 라벨로 들어간다",
+  disabledOnly.join(" / "),
+);
+const manyTargets = blockersOf(
+  policy({
+    eligibility_codes: { situation: ["JA0328", "JA0329", "JA0330", "JA0301", "JA0302"] },
+  }),
+  prof({ situations: ["JA0326"] }),
+);
+check(manyTargets[0].includes("외 2개"), "대상이 많으면 3개까지만 적는다", manyTargets.join(" / "));
+check(
+  blockersOf(
+    policy({ eligibility_codes: { situation: ["JA9999"] } }),
+    prof({ situations: ["JA0326"] }),
+  )[0] === "개인 상황 조건 불일치",
+  "라벨을 모르는 코드는 괄호째 생략한다",
 );
 // 가구상황은 hard block에서 빼기로 했다 — 실측 근거는 gate.ts의 CheckedGroup 주석
 const HOMELESS_ONLY = policy({ eligibility_codes: { household: ["JA0412"] } });
@@ -222,6 +252,13 @@ check(buildProfileText(EMPTY_PROFILE, REF_YEAR) === "", "빈 프로필은 빈 �
 check(
   buildProfileText({ ...EMPTY_PROFILE, birth_year: 1998 }, REF_YEAR) === "- 나이: 28세 (1998년생)",
   "생년만 있으면 그 줄만",
+);
+
+// 프로덕션(gemini.ts)과 실측 스크립트(model-eval.mts)가 같은 틀을 쓰는지 — 갈라지면 §5.1.2 전제가 깨진다
+check(
+  buildUserText("- 나이: 28세", "[정책명]\n청년 월세") ===
+    "[사용자 조건]\n- 나이: 28세\n\n[정책 원문]\n[정책명]\n청년 월세",
+  "사용자 메시지 틀이 §5.1.2 실측 때와 같다",
 );
 
 // ─── 6. locateQuote — \r\n이 낀 원문 ──────────────────────────

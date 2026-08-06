@@ -19,6 +19,21 @@ export type ValidatedVerdict = {
   highlight: { start: number; end: number } | null;
 };
 
+/**
+ * 확정된 판정 한 건 — `verdicts` 행이자 판정 API의 응답이자 카드가 그리는 모양이다 (§2.3).
+ *
+ * 셋을 한 타입으로 묶는다. 모양이 갈라지면 저장된 판정과 방금 받은 판정이 화면에서 다르게 보인다.
+ */
+export type DecidedVerdict = {
+  verdict: Verdict;
+  /** 코드 게이트가 확정했는가, AI가 판정했는가 (F-11b) */
+  decided_by: "code" | "ai";
+  reason: string | null;
+  quote: string | null;
+  quote_verified: boolean;
+  blockers: string[];
+};
+
 const VERDICTS: string[] = ["eligible", "unclear", "ineligible"];
 
 /** 배지 아래 한 문장으로 들어간다 */

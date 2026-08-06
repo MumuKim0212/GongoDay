@@ -6,6 +6,7 @@
  *
  * ⚠️ 같은 규칙이 목록 SQL 1차 필터에도 있다 (§5.0.1). 규칙을 바꿀 때는 두 곳을 같이 바꾼다.
  */
+import { CODE_LABELS } from "@/lib/profile/schema";
 
 /** eligibility_codes jsonb (§2.1.1). 의미를 아는 그룹만 읽고 unknown은 읽지 않는다. */
 export type EligibilityCodes = {
@@ -94,6 +95,9 @@ const GROUP_LABEL: Record<CheckedGroup, string> = {
   business: "사업자 상황",
 };
 
+/** 블로커 한 줄에 나열할 정책 대상 라벨 수. 넘치면 카드가 읽히지 않는다 */
+const MAX_LABELS = 3;
+
 /** 생년만 저장하므로 연나이다. 목록 SQL의 `:age`도 이 값을 써야 게이트와 답이 갈리지 않는다 (§5.0.1) */
 export function ageFromBirthYear(birthYear: number, refYear = new Date().getFullYear()): number {
   return refYear - birthYear;
@@ -180,7 +184,29 @@ function checkCodeGroup(
   if (mine.length === 0) return;
   if (mine.some((code) => required.includes(code))) return;
 
-  blockers.push(`${GROUP_LABEL[group]} 조건 불일치`);
+  const target = targetLabel(required);
+  blockers.push(
+    target === null
+      ? `${GROUP_LABEL[group]} 조건 불일치`
+      : `${GROUP_LABEL[group]} 조건 불일치 (정책 대상: ${target})`,
+  );
+}
+
+/**
+ * 정책이 요구하는 코드를 한글로 적는다.
+ *
+ * **잔여 오판 위험 상한 3.8%의 회수 장치다** (§5.0.2). 개인상황은 부가 코드(장애인·보훈 등)를
+ * 안 고른 사용자를 `아님`으로 확정하는데, "개인 상황 조건 불일치"로만 적으면 무엇을 고쳐야 하는지
+ * 알 수 없다. **대상이 적혀 있어야 사용자가 자기 조건을 고쳐 되찾아올 수 있다** (PRD §7.5).
+ *
+ * 라벨을 모르는 코드는 뺀다 — 폼에 없는 코드까지 원문 코드로 노출하면 읽을 수 없는 문구가 된다.
+ */
+function targetLabel(required: string[]): string | null {
+  const labels = required.map((code) => CODE_LABELS[code]).filter((v) => v !== undefined);
+  if (labels.length === 0) return null;
+  return labels.length <= MAX_LABELS
+    ? labels.join(", ")
+    : `${labels.slice(0, MAX_LABELS).join(", ")} 외 ${labels.length - MAX_LABELS}개`;
 }
 
 function toCodes(value: string | null): string[] {

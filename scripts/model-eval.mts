@@ -22,6 +22,7 @@ import {
   SYSTEM_PROMPT,
   buildProfileText,
   buildSourceText,
+  buildUserText,
   type PolicySourceFields,
 } from "../src/lib/verdict/prompt";
 import { validateVerdict } from "../src/lib/verdict/validate";
@@ -131,10 +132,7 @@ async function callModel(model: string, sourceText: string) {
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
           contents: [
-            {
-              role: "user",
-              parts: [{ text: `[사용자 조건]\n${PROFILE_TEXT}\n\n[정책 원문]\n${sourceText}` }],
-            },
+            { role: "user", parts: [{ text: buildUserText(PROFILE_TEXT, sourceText) }] },
           ],
           generationConfig: {
             temperature: 0,

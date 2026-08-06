@@ -1,11 +1,14 @@
 import Link from "next/link";
 
 import { ListControls } from "@/components/ListControls";
-import { PolicyCard, type CardVerdict } from "@/components/PolicyCard";
+import { PolicyList } from "@/components/PolicyList";
 import { SyncButton } from "@/components/SyncButton";
 import { CATEGORIES, DEFAULT_CATEGORIES, type Category } from "@/lib/sources/category";
 import { PAGE_SIZE, defaultFilters, fetchPolicies, type ListFilters } from "@/lib/policies/query";
 import { createClient } from "@/lib/supabase/server";
+import type { Profile } from "@/lib/verdict/gate";
+import { SIGNATURE_COLUMNS, profileSignature } from "@/lib/verdict/signature";
+import type { DecidedVerdict } from "@/lib/verdict/validate";
 
 /** 매 요청 조회한다 — 프로필과 판정이 사용자마다 다르다. */
 export const dynamic = "force-dynamic";
@@ -23,13 +26,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { data: profile } = user
+  // 판정 서명을 계산해야 하므로 게이트가 읽는 칸을 통째로 읽는다 (§5.5).
+  const { data: profileRow } = user
     ? await supabase
         .from("profiles")
-        .select("birth_year, region_sido, region_sigungu, interests")
+        .select(`${SIGNATURE_COLUMNS}, interests`)
         .eq("id", user.id)
         .maybeSingle()
     : { data: null };
+
+  const profile = profileRow as unknown as (Profile & { interests: string[] }) | null;
 
   const filters: ListFilters = {
     ...defaultFilters(),
@@ -45,7 +51,12 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
 
   const { rows, filteredCount, totalCount, error } = await fetchPolicies(supabase, filters);
   const [verdicts, syncedAt] = await Promise.all([
-    fetchVerdicts(supabase, user?.id ?? null, rows.map((r) => r.id)),
+    fetchVerdicts(
+      supabase,
+      user?.id ?? null,
+      profile === null ? null : profileSignature(profile),
+      rows.map((r) => r.id),
+    ),
     fetchLastSync(supabase),
   ]);
 
@@ -65,26 +76,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
       </header>
 
       <section className="mt-5 flex flex-wrap items-center gap-2">
-        {profile ? (
-          <>
-            <span className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white opacity-50 dark:bg-white dark:text-gray-900">
-              내 조건으로 판정하기 (준비 중)
-            </span>
-            <Link
-              href="/profile"
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-            >
-              내 조건 수정
-            </Link>
-          </>
-        ) : (
-          <Link
-            href="/profile"
-            className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white hover:opacity-90 dark:bg-white dark:text-gray-900"
-          >
-            내 조건 입력하기
-          </Link>
-        )}
+        <Link
+          href="/profile"
+          className={
+            profile
+              ? "rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+              : "rounded bg-gray-900 px-3 py-1.5 text-sm text-white hover:opacity-90 dark:bg-white dark:text-gray-900"
+          }
+        >
+          {profile ? "내 조건 수정" : "내 조건 입력하기"}
+        </Link>
         <SyncButton />
       </section>
 
@@ -117,14 +118,22 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
         />
       </section>
 
-      <section className="mt-5 border-t border-gray-200 dark:border-gray-800">
+      <section className="mt-5">
         {error ? (
           <EmptyState
             title="목록을 불러오지 못했습니다"
             body="잠시 후 새로고침해 주세요. 수집된 데이터는 그대로 남아 있습니다."
           />
         ) : rows.length > 0 ? (
-          rows.map((p) => <PolicyCard key={p.id} policy={p} verdict={verdicts.get(p.id) ?? null} />)
+          <PolicyList
+            // 페이지·필터가 바뀌면 판정 상태를 새로 시작한다. 안 그러면 서버가 내려준
+            // 저장된 판정(initialVerdicts)이 옛 상태에 가려 안 보인다.
+            key={rows.map((r) => r.id).join(",")}
+            rows={rows}
+            initialVerdicts={verdicts}
+            hasSession={user !== null}
+            hasProfile={profile !== null}
+          />
         ) : totalCount === 0 ? (
           <EmptyState
             title="아직 수집된 정책이 없습니다"
@@ -159,23 +168,31 @@ function parseCategories(raw: string | null, interests: string[] | undefined): C
 /**
  * 저장된 판정을 함께 읽는다 (F-16). 이 화면은 Gemini를 부르지 않는다 —
  * 한 번 판정한 페이지를 다시 열어도 호출이 0건이어야 한다 (§6.1).
+ *
+ * **서명으로 걸러야 한다.** 서명을 빼고 읽으면 조건을 고친 뒤에도 옛 판정이 그대로 붙어
+ * **새 조건으로 판정한 것처럼 보인다** — 판정 버튼을 누르기 전까지 사용자는 알 수 없다 (§5.5).
  */
 async function fetchVerdicts(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string | null,
+  signature: string | null,
   policyIds: string[],
-): Promise<Map<string, CardVerdict>> {
-  if (!userId || policyIds.length === 0) return new Map();
+): Promise<Record<string, DecidedVerdict>> {
+  if (!userId || signature === null || policyIds.length === 0) return {};
 
   const { data } = await supabase
     .from("verdicts")
     .select("policy_id, verdict, decided_by, reason, quote, quote_verified, blockers")
     .eq("user_id", userId)
+    .eq("profile_signature", signature)
     .in("policy_id", policyIds);
 
-  const map = new Map<string, CardVerdict>();
-  for (const v of data ?? []) map.set(v.policy_id, v as unknown as CardVerdict);
-  return map;
+  const out: Record<string, DecidedVerdict> = {};
+  for (const row of data ?? []) {
+    const { policy_id, ...v } = row as unknown as { policy_id: string } & DecidedVerdict;
+    out[policy_id] = v;
+  }
+  return out;
 }
 
 /** 소스별 마지막 성공 시각 (F-05). 실패한 실행은 "갱신됨"으로 읽히면 안 되므로 제외한다. */

@@ -10,6 +10,15 @@
  */
 import type { Profile } from "./gate";
 
+/**
+ * `profiles`에서 서명·게이트가 읽는 칸. 판정하는 쪽은 **이 목록만** 읽는다.
+ *
+ * `Profile` 타입과 한 벌로 움직여야 한다 — 칸이 빠지면 서명이 그 값을 못 보고, 프로필을 고쳐도
+ * 캐시가 그대로 남아 **옛 판정이 새 조건인 척한다.** 화면에서는 구별되지 않는 종류의 사고다.
+ */
+export const SIGNATURE_COLUMNS =
+  "birth_year, gender, region_sido, region_sigungu, income_bracket, situations, household, business_status";
+
 /** 서버가 자기 쿼리로 다시 계산한다 — 클라이언트가 보낸 서명을 신뢰하지 않는다 (§2.3) */
 export function profileSignature(profile: Profile): string {
   return [

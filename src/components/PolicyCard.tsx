@@ -2,18 +2,10 @@ import Link from "next/link";
 
 import { CATEGORY_LABELS, type Category } from "@/lib/sources/category";
 import type { PolicyListRow } from "@/lib/policies/query";
-import type { Verdict } from "@/lib/verdict/validate";
+import { normalize } from "@/lib/verdict/normalize";
+import type { DecidedVerdict } from "@/lib/verdict/validate";
 
-import { CategoryBadge, SourceBadge, VerdictBadge } from "./badges";
-
-export type CardVerdict = {
-  verdict: Verdict;
-  decided_by: "code" | "ai";
-  reason: string | null;
-  quote: string | null;
-  quote_verified: boolean;
-  blockers: string[];
-};
+import { CategoryBadge, SourceBadge, VerdictBadge, VerdictBadgeSkeleton } from "./badges";
 
 /**
  * 목록 카드 (ARCHITECTURE §6.1)
@@ -25,9 +17,12 @@ export type CardVerdict = {
 export function PolicyCard({
   policy,
   verdict,
+  judging = false,
 }: {
   policy: PolicyListRow;
-  verdict: CardVerdict | null;
+  verdict: DecidedVerdict | null;
+  /** 이 카드의 판정을 기다리는 중 — 배지 자리에 스켈레톤을 둔다 (§7) */
+  judging?: boolean;
 }) {
   const dimmed = verdict?.verdict === "ineligible";
 
@@ -38,6 +33,8 @@ export function PolicyCard({
       <div className="flex items-start gap-2">
         {verdict ? (
           <VerdictBadge verdict={verdict.verdict} decidedBy={verdict.decided_by} />
+        ) : judging ? (
+          <VerdictBadgeSkeleton />
         ) : null}
         <div className="min-w-0 flex-1">
           <Link
@@ -74,7 +71,12 @@ export function PolicyCard({
   );
 }
 
-function VerdictDetail({ verdict }: { verdict: CardVerdict }) {
+function VerdictDetail({ verdict }: { verdict: DecidedVerdict }) {
+  // 모델이 인용문을 blockers에 그대로 다시 적는 일이 잦다. 같은 문장을 두 번 보여주지 않는다.
+  const shownQuote = verdict.quote && verdict.quote_verified ? verdict.quote : null;
+  const quoteText = shownQuote === null ? "" : normalize(shownQuote).text;
+  const blockers = verdict.blockers.filter((b) => !quoteText.includes(normalize(b).text));
+
   return (
     <div className="mt-2 text-sm">
       {verdict.reason ? (
@@ -82,20 +84,34 @@ function VerdictDetail({ verdict }: { verdict: CardVerdict }) {
       ) : null}
 
       {/* 인용 검증을 통과한 것만 원문 근거로 보여준다 (PRD §7.4) */}
-      {verdict.quote && verdict.quote_verified ? (
+      {shownQuote ? (
         <blockquote className="mt-1.5 border-l-2 border-gray-300 pl-2 text-xs text-gray-600 dark:border-gray-600 dark:text-gray-400">
-          {verdict.quote}
+          {shownQuote}
         </blockquote>
       ) : null}
 
-      {verdict.blockers.length > 0 ? (
+      {blockers.length > 0 ? (
         <ul className="mt-1.5 space-y-0.5">
-          {verdict.blockers.map((b) => (
+          {blockers.map((b) => (
             <li key={b} className="text-xs text-gray-600 dark:text-gray-400">
               · {b}
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {/*
+        코드 게이트가 확정한 '아님'의 회수 장치다 (§5.0.2의 잔여 오판 위험 상한 3.8%).
+        블로커가 정책 대상을 한글로 적어주고, 여기서 고칠 자리를 알려준다.
+      */}
+      {verdict.verdict === "ineligible" && verdict.decided_by === "code" ? (
+        <p className="mt-1.5 text-xs text-gray-500">
+          해당하는 조건이 있다면{" "}
+          <Link href="/profile" className="underline underline-offset-2">
+            내 조건
+          </Link>
+          에 추가해 보세요.
+        </p>
       ) : null}
     </div>
   );
