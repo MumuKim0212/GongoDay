@@ -1,32 +1,31 @@
 import { SCORE_HINTS, scoreLabel, type Score } from "@/lib/verdict/score";
 
-/** 두 소스가 한 목록에 섞이므로 어디서 온 정보인지 보여야 한다 (F-03a) */
-export function SourceBadge({ source }: { source: "youth" | "gov24" }) {
-  const label = source === "youth" ? "온통청년" : "정부24";
-  const tone =
-    source === "youth"
-      ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-400/20"
-      : "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-950 dark:text-sky-300 dark:ring-sky-400/20";
-
-  return (
-    <span className={`rounded px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset ${tone}`}>
-      {label}
-    </span>
-  );
+/**
+ * 출처 표시 (F-03a · docs/DESIGN.md §4.2)
+ *
+ * **배지가 아니라 카드 키커다.** 두 소스가 같은 잉크를 쓰고 구분은 글자가 한다 —
+ * 소스마다 색을 주면 판정 배지의 시안·마젠타와 경쟁해서 정작 중요한 것이 묻힌다.
+ */
+export function SourceKicker({ source }: { source: "youth" | "gov24" }) {
+  return <span className="card-kicker">{source === "youth" ? "온통청년" : "정부24"}</span>;
 }
 
 /**
- * 5단계 점수 배지 (§5.6).
+ * 5단계 점수 배지 (§5.6 · DESIGN.md §4.1)
  *
  * 숫자를 앞에 세우고 뜻을 붙인다 — `4`만 보이면 무슨 척도인지 모르고, `확인 1개`만 보이면
  * 목록에서 순서가 읽히지 않는다. 점수는 모델이 아니라 확인 항목 수에서 나온다 (`lib/verdict/score.ts`).
+ *
+ * **색조가 아니라 잉크 농도가 서열이다.** 채움은 5점 하나뿐이라 목록에서 "볼 게 있는지"가
+ * 한눈에 잡히고, 색을 못 보는 사용자에게도 순서가 남는다. 3점의 마젠타는 "나쁨"이 아니라
+ * "여기를 봐야 함"이다 — 4점(시안)과 잉크가 다를 뿐 둘 다 옅다.
  */
-const SCORE_STYLE: Record<Score, string> = {
-  5: "bg-green-50 text-green-800 ring-green-600/20 dark:bg-green-950 dark:text-green-300 dark:ring-green-400/20",
-  4: "bg-teal-50 text-teal-800 ring-teal-600/20 dark:bg-teal-950 dark:text-teal-300 dark:ring-teal-400/20",
-  3: "bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-950 dark:text-amber-300 dark:ring-amber-400/20",
-  2: "bg-slate-100 text-slate-700 ring-slate-500/20 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-400/20",
-  1: "bg-gray-100 text-gray-600 ring-gray-500/20 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-400/20",
+const SCORE_TAG: Record<Score, string> = {
+  5: "tag-solid",
+  4: "tag-accent",
+  3: "tag-accent-2",
+  2: "tag-neutral",
+  1: "tag-quiet",
 };
 
 /** `decided_by`를 함께 보여준다 — 코드로 확정한 것과 AI가 판정한 것은 신뢰의 성격이 다르다 (F-11b) */
@@ -40,37 +39,37 @@ export function ScoreBadge({
   decidedBy?: "code" | "ai" | null;
 }) {
   return (
-    <span
-      title={SCORE_HINTS[score]}
-      className={`inline-flex shrink-0 items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${SCORE_STYLE[score]}`}
-    >
-      <span className="tabular-nums" aria-hidden>
+    <span title={SCORE_HINTS[score]} className={`tag shrink-0 ${SCORE_TAG[score]}`}>
+      <span className="tabular-nums font-semibold" aria-hidden>
         {score}
       </span>
       <span className="sr-only">5점 만점에 {score}점 — </span>
       {scoreLabel(score, checkCount)}
       {decidedBy ? (
-        <span className="font-normal opacity-70">{decidedBy === "code" ? "· 코드" : "· AI"}</span>
+        <span className="opacity-70">{decidedBy === "code" ? "· 코드" : "· AI"}</span>
       ) : null}
     </span>
   );
 }
 
-/** 판정을 기다리는 동안 배지 자리를 지킨다 — 결과가 도착해도 카드가 튀지 않는다 (§7) */
+/**
+ * 판정을 기다리는 동안 배지 자리를 지킨다 — 결과가 도착해도 카드가 튀지 않는다 (§7 · DESIGN.md §4.6)
+ *
+ * 높이를 숫자로 박지 않고 `.tag`에서 그대로 받는다. 배지의 글자 크기나 패딩이 바뀌어도
+ * 자리 크기가 따라오지 않으면 이 컴포넌트의 존재 이유가 사라진다. 안의 문자가 줄 박스를
+ * 만들어 실제 배지와 같은 높이를 낸다 — 접근성 이름은 `aria-label`이 준다.
+ *
+ * **`&nbsp;`여야 한다.** `.tag`가 `inline-flex`라 보통 공백뿐인 텍스트는 익명 플렉스 항목으로
+ * 렌더되지 않고(CSS Flexbox §4) 높이가 0으로 무너진다.
+ */
 export function VerdictBadgeSkeleton() {
   return (
-    <span
-      role="status"
-      aria-label="판정 중"
-      className="inline-flex h-[22px] w-14 shrink-0 animate-pulse rounded bg-gray-200 dark:bg-gray-800"
-    />
+    <span role="status" aria-label="판정 중" className="tag tag-neutral w-20 shrink-0 animate-pulse">
+      &nbsp;
+    </span>
   );
 }
 
 export function CategoryBadge({ label }: { label: string }) {
-  return (
-    <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-      {label}
-    </span>
-  );
+  return <span className="tag tag-neutral">{label}</span>;
 }

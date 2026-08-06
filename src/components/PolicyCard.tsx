@@ -6,7 +6,7 @@ import { normalize } from "@/lib/verdict/normalize";
 import { SCORE_HINTS, scoreOf } from "@/lib/verdict/score";
 import type { DecidedVerdict } from "@/lib/verdict/validate";
 
-import { CategoryBadge, ScoreBadge, SourceBadge, VerdictBadgeSkeleton } from "./badges";
+import { CategoryBadge, ScoreBadge, SourceKicker, VerdictBadgeSkeleton } from "./badges";
 
 /**
  * 목록 카드 (ARCHITECTURE §6.1)
@@ -47,7 +47,7 @@ export function PolicyCard({
           </Link>
 
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <SourceBadge source={policy.source} />
+            <SourceKicker source={policy.source} />
             {policy.categories.slice(0, 3).map((c) => (
               <CategoryBadge key={c} label={CATEGORY_LABELS[c as Category] ?? c} />
             ))}

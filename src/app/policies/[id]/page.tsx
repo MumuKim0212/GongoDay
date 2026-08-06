@@ -212,7 +212,7 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
         <h2 className="font-semibold">판정 근거 원문</h2>
         <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
           AI에게 넘긴 텍스트 그대로입니다.
-          {highlight ? " 노란 표시가 판정 근거로 인용된 문장입니다." : ""}
+          {highlight ? " 표시된 문장이 판정 근거로 인용된 문장입니다." : ""}
         </p>
         <div className="mt-2 rounded border border-gray-200 p-4 dark:border-gray-800">
           <QuoteHighlight text={sourceText} range={highlight} />
