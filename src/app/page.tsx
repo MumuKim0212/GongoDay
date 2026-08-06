@@ -37,8 +37,15 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
 
   const profile = profileRow as unknown as (Profile & { interests: string[] }) | null;
 
+  // 스크랩만 보기 (F-20). RLS가 본인 행만 주므로 여기서 사용자를 한 번 더 거를 필요가 없다.
+  const scrapsOnly = one(sp.scrap) === "1";
+  const { data: scrapRows } = scrapsOnly && user
+    ? await supabase.from("scraps").select("policy_id").eq("user_id", user.id)
+    : { data: null };
+
   const filters: ListFilters = {
     ...defaultFilters(),
+    scrapPolicyIds: scrapsOnly ? (scrapRows ?? []).map((r) => r.policy_id as string) : null,
     birthYear: profile?.birth_year ?? null,
     regionSido: profile?.region_sido ?? null,
     regionSigungu: profile?.region_sigungu ?? null,
@@ -115,6 +122,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
           q={filters.q}
           source={filters.source}
           showAll={filters.showAll}
+          scrapsOnly={scrapsOnly}
         />
       </section>
 
@@ -133,6 +141,18 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
             initialVerdicts={verdicts}
             hasSession={user !== null}
             hasProfile={profile !== null}
+          />
+        ) : scrapsOnly ? (
+          <EmptyState
+            title="스크랩한 정책이 없습니다"
+            body="정책 상세 화면에서 ☆ 스크랩을 누르면 여기에 모입니다."
+          />
+        ) : filters.q || filters.source ? (
+          // **검색·출처가 걸려 있으면 '수집된 정책이 없다'고 말하면 안 된다.** `totalCount`는
+          // 검색어까지 반영한 값이라, 오타 하나로 "데이터가 없으니 갱신하라"는 거짓 안내가 뜬다 (§7).
+          <EmptyState
+            title="검색 결과가 없습니다"
+            body="검색어를 지우거나 출처 필터를 '전체'로 바꿔 보세요."
           />
         ) : totalCount === 0 ? (
           <EmptyState

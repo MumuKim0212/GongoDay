@@ -57,6 +57,13 @@ export type ListFilters = {
   source: "youth" | "gov24" | null;
   /** 켜면 1차 필터를 해제하고 전체를 보여준다 (F-01b) */
   showAll: boolean;
+  /**
+   * 스크랩한 정책 id. `null`이면 스크랩 필터를 걸지 않는다 (F-20).
+   *
+   * 사용자가 직접 건 필터라 **`showAll`에서도 유지한다** — 검색·출처와 같은 층위다.
+   * RLS가 본인 행만 주므로 여기 담긴 id는 이미 본인 것뿐이다.
+   */
+  scrapPolicyIds: string[] | null;
   page: number;
 };
 
@@ -69,6 +76,7 @@ export function defaultFilters(): ListFilters {
     q: null,
     source: null,
     showAll: false,
+    scrapPolicyIds: null,
     page: 1,
   };
 }
@@ -89,6 +97,8 @@ function applyFilters(
     query = query.ilike("title", `%${f.q.replace(/[%_\\]/g, "\\$&")}%`);
   }
   if (f.source) query = query.eq("source", f.source);
+  // 스크랩도 사용자가 직접 건 필터다 — '전체 보기'로 풀지 않는다
+  if (f.scrapPolicyIds !== null) query = query.in("id", f.scrapPolicyIds);
 
   if (f.showAll) return query;
 
@@ -136,6 +146,11 @@ export async function fetchPolicies(
   f: ListFilters,
 ): Promise<ListResult> {
   const from = (f.page - 1) * PAGE_SIZE;
+
+  // 스크랩이 하나도 없으면 조회할 것이 없다. `in.()`는 빈 목록으로 부르면 오류다.
+  if (f.scrapPolicyIds !== null && f.scrapPolicyIds.length === 0) {
+    return { rows: [], filteredCount: 0, totalCount: 0, error: null };
+  }
 
   // 분야를 전부 끄면 0건이다. 필터를 껐으니 전체를 보여준다고 하면
   // **끌수록 결과가 늘어나** 분야 필터가 목록을 좁히는 장치라는 것과 어긋난다.

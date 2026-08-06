@@ -15,11 +15,13 @@ export function ListControls({
   q,
   source,
   showAll,
+  scrapsOnly,
 }: {
   categories: Category[];
   q: string | null;
   source: string | null;
   showAll: boolean;
+  scrapsOnly: boolean;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -105,6 +107,15 @@ export function ListControls({
             onChange={(e) => push((p) => (e.target.checked ? p.set("all", "1") : p.delete("all")))}
           />
           전체 보기
+        </label>
+
+        <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+          <input
+            type="checkbox"
+            checked={scrapsOnly}
+            onChange={(e) => push((p) => (e.target.checked ? p.set("scrap", "1") : p.delete("scrap")))}
+          />
+          스크랩만 보기
         </label>
       </div>
     </div>
