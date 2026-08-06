@@ -149,23 +149,36 @@ export default async function AdminPage({ params }: PageProps<"/admin/[[...slug]
             <>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Stat label="판정 건수" value={fmt(stats.verdicts.total)} />
-                <Stat label="인용 붙음" value={fmt(stats.verdicts.quoted)} />
+                <Stat label="AI가 답한 건" value={fmt(stats.verdicts.ai)} />
+                {/* 분모는 AI 판정 수다. quote가 남은 건수로 나누면 늘 100%가 나온다 (stats.ts 주석) */}
                 <Stat
                   label="인용 검증 통과"
                   value={fmt(stats.verdicts.quoteVerified)}
-                  hint={pct(stats.verdicts.quoteVerified, stats.verdicts.quoted) ?? undefined}
+                  hint={pct(stats.verdicts.quoteVerified, stats.verdicts.ai) ?? undefined}
                 />
                 <Stat label="마지막 판정" value={time(stats.verdicts.latestAt)} />
               </div>
+              <p className="mt-1 text-xs text-gray-500">
+                인용 검증을 통과하지 못한 AI 판정{" "}
+                <strong>{fmt(diff(stats.verdicts.ai, stats.verdicts.quoteVerified))}건</strong>은{" "}
+                <code>애매</code>로 강등되고, 상세 화면에 &ldquo;근거를 원문에서 찾지 못했습니다&rdquo;로 표시됩니다.
+                이 수가 늘면 프롬프트나 모델을 다시 봐야 합니다. 코드 게이트 판정에는 인용이 없습니다.
+              </p>
 
               <h3 className="mt-5 text-sm font-medium">결과 분포</h3>
               <Bars rows={stats.verdicts.byVerdict.map((v) => ({ ...v, hint: pct(v.count, stats.verdicts.total) }))} />
+              <p className="mt-1 text-xs text-gray-500">
+                <code>아님</code>인데 <code>blockers</code>가 빈 판정{" "}
+                <strong>{fmt(stats.verdicts.ineligibleNoBlockers)}건</strong> — 그 카드에 남는 설명은 한 줄짜리{" "}
+                <code>reason</code>뿐입니다. 숨기지 않는 대신 왜 아닌지를 말해주기로 한 약속이라(PRD §7.5) 이 수는
+                0에 가까워야 합니다.
+              </p>
 
               <h3 className="mt-5 text-sm font-medium">누가 판정했나</h3>
               <Bars rows={stats.verdicts.byDecider.map((d) => ({ ...d, hint: pct(d.count, stats.verdicts.total) }))} />
               <p className="mt-1 text-xs text-gray-500">
-                코드 게이트가 처리한 몫이 클수록 Gemini 호출이 적습니다. 인용 검증을 통과하지 못한 판정은{" "}
-                <code>애매</code>로 강등되므로, 검증 통과율이 낮아지면 프롬프트나 모델을 다시 봐야 합니다.
+                코드 게이트가 처리한 몫이 클수록 Gemini 호출이 적습니다. 호출 자체가 실패한 판정은 저장하지 않으므로
+                (다시 누르면 재시도됩니다) 여기 수치에는 잡히지 않습니다.
               </p>
             </>
           )}
@@ -283,6 +296,11 @@ function Note({ children }: { children: React.ReactNode }) {
 /** 조회 실패는 `—`다. **0으로 적으면 "없다"로 읽힌다.** */
 function fmt(v: Num): string {
   return v === null ? "—" : v.toLocaleString("ko-KR");
+}
+
+/** 한쪽이라도 못 읽었으면 뺄셈 결과도 모르는 값이다. */
+function diff(a: Num, b: Num): Num {
+  return a === null || b === null ? null : a - b;
 }
 
 function pct(v: Num, base: Num): string | null {

@@ -55,7 +55,8 @@ for (const f of s.fill) {
 }
 
 console.log("\n[판정]");
-console.log(`  전체 ${num(s.verdicts.total)} · 인용 ${num(s.verdicts.quoted)} · 검증통과 ${num(s.verdicts.quoteVerified)}`);
+console.log(`  전체 ${num(s.verdicts.total)} · AI ${num(s.verdicts.ai)} · 검증통과 ${num(s.verdicts.quoteVerified)}`);
+console.log(`  아님인데 blockers 빔 ${num(s.verdicts.ineligibleNoBlockers)}`);
 for (const v of s.verdicts.byVerdict) console.log(`  ${v.label.padEnd(12)} ${num(v.count)}`);
 for (const d of s.verdicts.byDecider) console.log(`  ${d.label.padEnd(12)} ${num(d.count)}`);
 
@@ -97,6 +98,34 @@ check(audiences > 0 && audiences <= (s.policies.gov24 ?? 0), "사용자구분은
 const youthElig = s.fill.find((f) => f.base === "youth")?.count ?? 0;
 const youthPct = ((youthElig / (s.policies.youth ?? 1)) * 100).toFixed(1);
 check(youthPct === "33.7", "온통청년 지원대상 채움률 33.7%", `${youthPct}%`);
+
+// ── 판정 (작업 6 이후에야 의미가 생긴다) ──────────────
+const v = s.verdicts;
+if ((v.total ?? 0) === 0) {
+  console.log("\n판정이 0건이라 판정 검사는 건너뛴다.");
+} else {
+  const sum = (rows: typeof v.byVerdict) => rows.reduce((a, r) => a + (r.count ?? 0), 0);
+  check(sum(v.byVerdict) === v.total, "결과 분포 합 = 전체", `${sum(v.byVerdict)} vs ${num(v.total)}`);
+  check(sum(v.byDecider) === v.total, "판정 주체 합 = 전체", `${sum(v.byDecider)} vs ${num(v.total)}`);
+
+  // 검증에 실패한 인용은 validate.ts가 null로 지우고 저장한다. 그래서 이 둘은 항상 같은 집합이고,
+  // **인용 검증률의 분모로 quote 건수를 쓰면 무조건 100%가 나온다.** 화면은 AI 판정 수로 나눈다.
+  check(v.quoted === v.quoteVerified, "quote 있음 = quote_verified (분모로 쓰면 안 되는 이유)", `${num(v.quoted)} / ${num(v.quoteVerified)}`);
+
+  check(
+    (v.quoteVerified ?? 0) <= (v.ai ?? 0),
+    "인용 검증 통과 ≤ AI 판정 (코드 게이트는 인용을 남기지 않는다)",
+    `${num(v.quoteVerified)} / ${num(v.ai)}`,
+  );
+
+  // 0이 아니어도 실패는 아니다 — AI가 blockers를 비워 보낼 수 있다. 수치를 눈에 띄게 남긴다.
+  const noBlockers = v.ineligibleNoBlockers ?? 0;
+  const ineligible = v.byVerdict.find((r) => r.label === "아님")?.count ?? 0;
+  check(noBlockers <= ineligible, "blockers 빈 '아님' ≤ 전체 '아님'", `${noBlockers} / ${ineligible}`);
+  if (noBlockers > 0) {
+    console.log(`\n⚠ '아님' ${ineligible}건 중 ${noBlockers}건에 blockers가 없다 — 카드 설명이 reason 한 줄뿐이다 (PRD §7.5).`);
+  }
+}
 
 console.log(`\n통과 ${pass.length} / 실패 ${fail.length}`);
 for (const f of fail) console.log(`  ✗ ${f}`);

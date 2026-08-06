@@ -65,10 +65,18 @@ export type AdminStats = {
     total: Num;
     byVerdict: Slice[];
     byDecider: Slice[];
-    /** 인용을 붙인 판정 */
-    quoted: Num;
-    /** 그중 원문에서 위치를 찾은 것 (§7.4) */
+    /**
+     * 인용 검증의 분모. **`quote`가 있는 건수를 분모로 쓰면 안 된다** —
+     * `validate.ts`가 검증에 실패한 인용을 `null`로 지우고 저장하므로
+     * `quote is not null`과 `quote_verified`는 항상 같은 집합이고, 비율이 무조건 100%가 된다.
+     */
+    ai: Num;
+    /** 원문에서 위치를 찾은 인용 (§7.4). 코드 게이트 판정에는 인용이 없다 */
     quoteVerified: Num;
+    /** 위 불변식이 깨지지 않았는지 보는 값. 화면에는 안 쓴다 (`scripts/admin-check.mts`) */
+    quoted: Num;
+    /** '아님'인데 blockers가 빈 건수 — 카드에 남는 설명이 reason 한 줄뿐이다 (PRD §7.5) */
+    ineligibleNoBlockers: Num;
     latestAt: string | null;
   };
   sync: SyncStatus[];
@@ -216,20 +224,23 @@ function fillCounts(db: SupabaseClient): Promise<FillRow[]> {
 }
 
 async function verdictCounts(db: SupabaseClient): Promise<AdminStats["verdicts"]> {
-  const [total, byVerdict, byDecider, quoted, quoteVerified, latestAt] = await Promise.all([
-    n(head(db, "verdicts")),
-    Promise.all(
-      VERDICTS.map(async ([key, label]) => ({ label, count: await n(head(db, "verdicts").eq("verdict", key)) })),
-    ),
-    Promise.all(
-      DECIDERS.map(async ([key, label]) => ({ label, count: await n(head(db, "verdicts").eq("decided_by", key)) })),
-    ),
-    n(head(db, "verdicts").not("quote", "is", null)),
-    n(head(db, "verdicts").eq("quote_verified", true)),
-    latest(db, "verdicts", "created_at"),
-  ]);
+  const [total, byVerdict, byDecider, ai, quoteVerified, quoted, ineligibleNoBlockers, latestAt] =
+    await Promise.all([
+      n(head(db, "verdicts")),
+      Promise.all(
+        VERDICTS.map(async ([key, label]) => ({ label, count: await n(head(db, "verdicts").eq("verdict", key)) })),
+      ),
+      Promise.all(
+        DECIDERS.map(async ([key, label]) => ({ label, count: await n(head(db, "verdicts").eq("decided_by", key)) })),
+      ),
+      n(head(db, "verdicts").eq("decided_by", "ai")),
+      n(head(db, "verdicts").eq("quote_verified", true)),
+      n(head(db, "verdicts").not("quote", "is", null)),
+      n(head(db, "verdicts").eq("verdict", "ineligible").eq("blockers", "{}")),
+      latest(db, "verdicts", "created_at"),
+    ]);
 
-  return { total, byVerdict, byDecider, quoted, quoteVerified, latestAt };
+  return { total, byVerdict, byDecider, ai, quoteVerified, quoted, ineligibleNoBlockers, latestAt };
 }
 
 /**
