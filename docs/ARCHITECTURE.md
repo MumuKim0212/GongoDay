@@ -830,6 +830,7 @@ export function locateQuote(sourceText: string, quote: string):
 | `GEMINI_API_KEY` | **서버 전용** | 판정 |
 | `YOUTH_API_KEY` | **서버 전용** | 온통청년 `apiKeyNm` (쿼리) |
 | `GOV24_API_KEY` | **서버 전용** | 정부24 `Authorization` **헤더** |
+| `ADMIN_SLUG` | **서버 전용** | 운영 현황 화면 경로 (`/admin/<값>`). **비우면 `/admin`이 잠금 없이 열린다.** 로컬·배포 같은 규칙 |
 
 ---
 
