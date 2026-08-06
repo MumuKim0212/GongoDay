@@ -113,36 +113,30 @@ export function PolicyList({
 
   return (
     <>
+      {/* 이 화면의 유일한 채움 버튼이다 (DESIGN.md §5.1) — 다음에 할 일이 하나뿐임을 색으로 말한다 */}
       <div className="flex flex-wrap items-center gap-2">
         {hasProfile ? (
-          <button
-            type="button"
-            onClick={judge}
-            disabled={judging || !hasSession}
-            className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-gray-900"
-          >
+          <button type="button" onClick={judge} disabled={judging || !hasSession} className="btn btn-primary">
             {judging ? "판정 중…" : `이 페이지 ${rows.length}건 판정하기`}
           </button>
         ) : (
           // 프로필이 없으면 판정 버튼 대신 안내 (F-15)
-          <Link
-            href="/profile"
-            className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white hover:opacity-90 dark:bg-white dark:text-gray-900"
-          >
+          <Link href="/profile" className="btn btn-primary">
             내 조건 입력하고 판정받기
           </Link>
         )}
 
         {!hasSession ? (
-          <span className="text-xs text-gray-600 dark:text-gray-400">
+          <span className="text-micro text-muted">
             세션을 만들지 못해 판정을 쓸 수 없습니다. 목록은 그대로 보입니다.
           </span>
         ) : note ? (
-          <span className="text-xs text-gray-600 dark:text-gray-400">{note}</span>
+          <span className="text-micro text-muted">{note}</span>
         ) : null}
       </div>
 
-      <div className="mt-3 border-t border-gray-200 dark:border-gray-800">
+      {/* 구분선이 아니라 여백으로 나눈다 (원칙 1) */}
+      <div className="mt-4 grid gap-3">
         {ordered.map((p) => (
           <PolicyCard
             key={p.id}

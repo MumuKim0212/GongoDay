@@ -48,12 +48,12 @@ export function SyncButton() {
           type="button"
           onClick={() => run(s)}
           disabled={busy !== null}
-          className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900"
+          className="btn btn-secondary"
         >
           {busy === s ? "갱신 중…" : `${s === "youth" ? "온통청년" : "정부24"} 갱신`}
         </button>
       ))}
-      {msg ? <span className="text-xs text-gray-600 dark:text-gray-400">{msg}</span> : null}
+      {msg ? <span className="text-micro text-muted">{msg}</span> : null}
     </div>
   );
 }

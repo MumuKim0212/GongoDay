@@ -184,6 +184,10 @@
   --radius-md: 2px;
   --radius-lg: 4px;
 
+  /* 컨테이너 폭 (§2.4) — `max-w-page` / `max-w-read` */
+  --container-page: 1040px;
+  --container-read: 680px;
+
   --shadow-sm: var(--shadow-paper-sm);
   --shadow-md: var(--shadow-paper-md);
   --shadow-lg: var(--shadow-paper-lg);
@@ -220,6 +224,12 @@
      각 화면이 명시한다. */
   a {
     text-underline-offset: 3px;
+  }
+
+  /* 네이티브 체크박스·라디오도 시안으로 칠한다. 기본 파랑을 남기면 팔레트 밖 색이 하나 늘어난다. */
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--accent);
   }
 
   ::selection {
@@ -350,6 +360,47 @@
   .tag-quiet {
     border-color: var(--quiet-border);
     color: var(--quiet-fg);
+  }
+
+  /* 태그를 컨트롤로 쓸 때 (분야 칩 §5.1). 손가락이 닿아야 하므로 표시용 태그보다 크다 —
+     3px 패딩이면 24.8px라 누를 곳이 못 된다. */
+  .tag-btn {
+    cursor: pointer;
+    font-size: 13px;
+    padding: 6px 12px;
+  }
+  .tag-btn.tag-outline:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .tag-btn.tag-solid:hover {
+    background: var(--accent-hover);
+  }
+
+  /* ── 입력칸 ───────────────────────────────────────────────────────── */
+  .input {
+    width: 100%;
+    min-height: 36px;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--ink);
+    caret-color: var(--accent);
+    background: var(--surface);
+    border: 1px solid var(--divider);
+    border-radius: 2px;
+  }
+  /* 브라우저 기본 회색은 이 채움 위에서 4.5:1을 못 넘는다. 65% 잉크로 명시한다 —
+     `opacity: 1`은 Firefox의 기본 흐림을 되돌리기 위한 것이다. */
+  .input::placeholder {
+    color: color-mix(in srgb, var(--ink) 65%, transparent);
+    opacity: 1;
+  }
+  .input:hover {
+    border-color: color-mix(in srgb, var(--ink) 45%, transparent);
+  }
+  .input:focus-visible {
+    border-color: var(--accent);
+    outline-offset: 0;
   }
 
   /* ── 카드 ─────────────────────────────────────────────────────────── */

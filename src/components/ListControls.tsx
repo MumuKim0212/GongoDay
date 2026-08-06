@@ -44,6 +44,7 @@ export function ListControls({
 
   return (
     <div className={pending ? "opacity-60 transition-opacity" : "transition-opacity"}>
+      {/* 켜짐은 채움, 꺼짐은 외곽선 (DESIGN.md §5.1). ✓는 색 말고도 상태를 말해주는 두 번째 단서다 */}
       <div className="flex flex-wrap gap-1.5">
         {CATEGORIES.filter((c) => c !== "etc").map((c) => {
           const on = categories.includes(c);
@@ -53,11 +54,7 @@ export function ListControls({
               type="button"
               onClick={() => toggleCategory(c)}
               aria-pressed={on}
-              className={`rounded-full px-3 py-1 text-sm ring-1 ring-inset transition-colors ${
-                on
-                  ? "bg-gray-900 text-white ring-gray-900 dark:bg-white dark:text-gray-900 dark:ring-white"
-                  : "bg-transparent text-gray-600 ring-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:ring-gray-700 dark:hover:bg-gray-900"
-              }`}
+              className={`tag tag-btn transition-colors ${on ? "tag-solid" : "tag-outline"}`}
             >
               {on ? "✓ " : ""}
               {CATEGORY_LABELS[c]}
@@ -72,19 +69,17 @@ export function ListControls({
             e.preventDefault();
             push((p) => (text.trim() ? p.set("q", text.trim()) : p.delete("q")));
           }}
-          className="flex gap-1"
+          // `items-stretch`라 입력칸과 버튼의 높이가 서로 맞는다 — 둘의 기본 높이는 다르다
+          className="flex items-stretch gap-1"
         >
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="정책명 검색"
             aria-label="정책명 검색"
-            className="w-44 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-900"
+            className="input w-36"
           />
-          <button
-            type="submit"
-            className="rounded border border-gray-300 px-2 py-1 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-          >
+          <button type="submit" className="btn btn-secondary">
             검색
           </button>
         </form>
@@ -93,14 +88,14 @@ export function ListControls({
           value={source ?? ""}
           onChange={(e) => push((p) => (e.target.value ? p.set("source", e.target.value) : p.delete("source")))}
           aria-label="출처 필터"
-          className="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-900"
+          className="input w-auto"
         >
           <option value="">출처 전체</option>
           <option value="youth">온통청년</option>
           <option value="gov24">정부24</option>
         </select>
 
-        <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+        <label className="text-compact text-muted flex items-center gap-1.5">
           <input
             type="checkbox"
             checked={showAll}
@@ -109,7 +104,7 @@ export function ListControls({
           전체 보기
         </label>
 
-        <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+        <label className="text-compact text-muted flex items-center gap-1.5">
           <input
             type="checkbox"
             checked={scrapsOnly}

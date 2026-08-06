@@ -71,53 +71,48 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
   const lastPage = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE));
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-8">
-      <header>
-        <div className="flex items-center gap-2">
+    <main className="mx-auto w-full max-w-page px-4 py-8">
+      {/* 브랜드 줄 — 목업의 nav다. 한 화면에만 있으므로 클래스로 빼지 않는다 (DESIGN.md §3) */}
+      <header className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <span className="flex items-center gap-2">
           <Image src="/logo.svg" alt="" width={28} height={28} priority />
-          <h1 className="text-2xl font-bold">오늘공고</h1>
-        </div>
+          <h1 className="text-section">오늘공고</h1>
+        </span>
         {/* REQ-05 + 이름 해석 고정 (F-32) — "오늘 올라온 공고"로 읽히면 안 된다 */}
-        <p className="mt-1 text-gray-700 dark:text-gray-300">
+        <p className="text-small text-muted">
           오늘, <strong>내가 신청할 수 있는</strong> 공고만.
-        </p>
-        <p className="mt-0.5 text-sm text-gray-600 dark:text-gray-400">
-          조건을 한 번 넣어두면 온통청년·정부24의 지원정책을 한 곳에서 걸러 보여줍니다.
         </p>
       </header>
 
-      <section className="mt-5 flex flex-wrap items-center gap-2">
-        <Link
-          href="/profile"
-          className={
-            profile
-              ? "rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-              : "rounded bg-gray-900 px-3 py-1.5 text-sm text-white hover:opacity-90 dark:bg-white dark:text-gray-900"
-          }
-        >
+      <p className="text-small text-muted mt-4">
+        조건을 한 번 넣어두면 온통청년·정부24의 지원정책을 한 곳에서 걸러 보여줍니다.
+      </p>
+
+      {/* 채움 버튼은 아래 '판정하기' 하나뿐이라 여기는 외곽선이다 (§5.1) */}
+      <section className="mt-4 flex flex-wrap items-center gap-2">
+        <Link href="/profile" className="btn btn-secondary">
           {profile ? "내 조건 수정" : "내 조건 입력하기"}
         </Link>
         <SyncButton />
       </section>
 
       {/* 한 소스만 수집됐어도 있는 것만 보여준다 (§7) */}
-      <p className="mt-2 text-xs text-gray-500">
+      <p className="text-micro text-muted mt-2">
         마지막 갱신 · 온통청년 {syncedAt.youth ?? "없음"} · 정부24 {syncedAt.gov24 ?? "없음"}
       </p>
 
-      <p className="mt-3 text-sm text-gray-600 dark:text-gray-400">
+      <p className="text-small text-muted mt-3">
         {filters.showAll ? (
           <>전체 {totalCount.toLocaleString()}건</>
         ) : (
           <>
             {/* "내 조건에 맞는"이라고 쓰면 AI 판정을 마친 것처럼 읽힌다 (§6.1) */}
-            코드 조건 통과 <strong>{filteredCount.toLocaleString()}</strong>건
-            <span className="text-gray-400"> / 전체 {totalCount.toLocaleString()}건</span>
+            코드 조건 통과{" "}
+            <strong className="text-[var(--ink)]">{filteredCount.toLocaleString()}</strong>건 / 전체{" "}
+            {totalCount.toLocaleString()}건
           </>
         )}
-        {!profile ? (
-          <span className="ml-1 text-gray-500">— 조건을 넣으면 더 좁혀집니다</span>
-        ) : null}
+        {!profile ? <span> — 조건을 넣으면 더 좁혀집니다</span> : null}
       </p>
 
       <section className="mt-3">
@@ -244,11 +239,12 @@ async function fetchLastSync(
   return out;
 }
 
+/** 박스를 두르지 않고 여백으로 세운다 (원칙 1). 가운데 정렬도 하지 않는다 — 페이지는 왼쪽 정렬이다 (§4.7) */
 function EmptyState({ title, body }: { title: string; body: string }) {
   return (
-    <div className="py-16 text-center">
-      <p className="font-medium">{title}</p>
-      <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{body}</p>
+    <div className="py-8">
+      <p className="text-sub">{title}</p>
+      <p className="text-small text-muted mt-1">{body}</p>
     </div>
   );
 }
@@ -265,19 +261,19 @@ function Pager({ page, lastPage, sp }: { page: number; lastPage: number; sp: Sea
   };
 
   return (
-    <nav className="mt-6 flex items-center justify-between text-sm">
+    <nav className="mt-6 flex items-center justify-between">
       {page > 1 ? (
-        <Link href={href(page - 1)} className="underline underline-offset-2">
+        <Link href={href(page - 1)} className="btn btn-ghost">
           ← 이전
         </Link>
       ) : (
         <span />
       )}
-      <span className="text-gray-500">
+      <span className="text-small text-muted tabular-nums">
         {page} / {lastPage}
       </span>
       {page < lastPage ? (
-        <Link href={href(page + 1)} className="underline underline-offset-2">
+        <Link href={href(page + 1)} className="btn btn-ghost">
           다음 →
         </Link>
       ) : (

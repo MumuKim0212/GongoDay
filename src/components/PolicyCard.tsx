@@ -9,11 +9,14 @@ import type { DecidedVerdict } from "@/lib/verdict/validate";
 import { CategoryBadge, ScoreBadge, SourceKicker, VerdictBadgeSkeleton } from "./badges";
 
 /**
- * 목록 카드 (ARCHITECTURE §6.1)
+ * 목록 카드 (ARCHITECTURE §6.1 · docs/DESIGN.md §5.1)
  *
  * **`아님`도 사라지지 않는다.** 접어둘 뿐이고 `blockers`로 "왜 여기 있는지"를 말해준다 —
  * PRD §1.2 후기 불만 #1("지원도 못하는 공고가 보인다")에 대한 답이다.
  * 걸러 없애는 것과 이유를 붙여 보여주는 것은 다르다. 전자는 사용자가 신청 기회를 잃는다.
+ *
+ * 카드는 가로 두 칸이다 — 내용과 점수. 점수가 오른쪽 위에 고정되어 있어야 목록을 훑을 때
+ * 눈이 한 열만 따라가면 된다.
  */
 export function PolicyCard({
   policy,
@@ -28,47 +31,48 @@ export function PolicyCard({
   const score = verdict ? scoreOf(verdict) : null;
   const dimmed = score === 1;
 
-  return (
-    <article
-      className={`border-b border-gray-200 p-4 dark:border-gray-800 ${dimmed ? "opacity-60" : ""}`}
-    >
-      <div className="flex items-start gap-2">
-        {verdict && score ? (
-          <ScoreBadge score={score} checkCount={verdict.checks.length} decidedBy={verdict.decided_by} />
-        ) : judging ? (
-          <VerdictBadgeSkeleton />
-        ) : null}
-        <div className="min-w-0 flex-1">
-          <Link
-            href={`/policies/${policy.id}`}
-            className="font-medium underline-offset-2 hover:underline"
-          >
-            {policy.title}
-          </Link>
+  // 기관과 신청기간은 한 줄로 붙인다. 없는 것은 자리도 차지하지 않는다.
+  const facts = [
+    policy.org_name,
+    policy.apply_period ? `신청기간 ${policy.apply_period}` : null,
+  ].filter((v): v is string => v !== null);
 
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <SourceKicker source={policy.source} />
+  return (
+    <article className={`card elev-sm flex-row items-start gap-4 ${dimmed ? "opacity-60" : ""}`}>
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <SourceKicker source={policy.source} />
+
+        <Link
+          href={`/policies/${policy.id}`}
+          className="card-title underline-offset-2 hover:underline"
+        >
+          {policy.title}
+        </Link>
+
+        {facts.length > 0 ? <p className="card-body">{facts.join(" · ")}</p> : null}
+
+        {policy.categories.length > 0 ? (
+          <div className="card-meta flex-wrap">
             {policy.categories.slice(0, 3).map((c) => (
               <CategoryBadge key={c} label={CATEGORY_LABELS[c as Category] ?? c} />
             ))}
-            {policy.org_name ? (
-              <span className="text-xs text-gray-500">{policy.org_name}</span>
-            ) : null}
           </div>
+        ) : null}
 
-          {verdict ? (
-            <VerdictDetail verdict={verdict} />
-          ) : (
-            <p className="mt-2 line-clamp-2 text-sm text-gray-600 dark:text-gray-400">
-              {policy.summary ?? policy.eligibility_text ?? ""}
-            </p>
-          )}
-
-          {policy.apply_period ? (
-            <p className="mt-2 text-xs text-gray-500">신청기간 · {policy.apply_period}</p>
-          ) : null}
-        </div>
+        {verdict ? (
+          <VerdictDetail verdict={verdict} />
+        ) : (
+          <p className="card-body line-clamp-2">
+            {policy.summary ?? policy.eligibility_text ?? ""}
+          </p>
+        )}
       </div>
+
+      {verdict && score ? (
+        <ScoreBadge score={score} checkCount={verdict.checks.length} decidedBy={verdict.decided_by} />
+      ) : judging ? (
+        <VerdictBadgeSkeleton />
+      ) : null}
     </article>
   );
 }
@@ -82,14 +86,12 @@ function VerdictDetail({ verdict }: { verdict: DecidedVerdict }) {
   const checks = verdict.checks.filter((c) => !quoteText.includes(normalize(c).text));
 
   return (
-    <div className="mt-2 text-sm">
-      {verdict.reason ? (
-        <p className="text-gray-700 dark:text-gray-300">{verdict.reason}</p>
-      ) : null}
+    <div className="mt-0.5 flex flex-col gap-1.5">
+      {verdict.reason ? <p className="text-compact">{verdict.reason}</p> : null}
 
       {/* 인용 검증을 통과한 것만 원문 근거로 보여준다 (PRD §7.4) */}
       {shownQuote ? (
-        <blockquote className="mt-1.5 border-l-2 border-gray-300 pl-2 text-xs text-gray-600 dark:border-gray-600 dark:text-gray-400">
+        <blockquote className="border-l-2 border-[var(--divider)] pl-2 text-micro text-muted">
           {shownQuote}
         </blockquote>
       ) : null}
@@ -97,26 +99,27 @@ function VerdictDetail({ verdict }: { verdict: DecidedVerdict }) {
       {/*
         점수의 근거다 (§5.6). "왜 4점인지"가 이 목록이고, 사용자가 다음에 할 일이기도 하다 —
         애매를 "판단 실패"가 아니라 "이것만 확인하면 된다"로 읽히게 하는 것이 이 블록의 목적이다.
+        카드가 이미 surface라, 안에 한 겹 더 들어가는 이 블록은 종이색으로 되돌려 구분한다.
       */}
       {checks.length > 0 ? (
-        <div className="mt-1.5 rounded bg-gray-50 p-2 dark:bg-gray-900">
-          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">확인이 필요한 것</p>
-          <ul className="mt-0.5 space-y-0.5">
+        <div className="rounded-md bg-[var(--paper)] p-2">
+          <p className="text-micro font-semibold">확인이 필요한 것</p>
+          <ul className="mt-1 flex flex-col gap-0.5">
             {checks.map((c) => (
-              <li key={c} className="text-xs text-gray-600 dark:text-gray-400">
+              <li key={c} className="text-micro text-muted">
                 · {c}
               </li>
             ))}
           </ul>
         </div>
       ) : verdict.verdict === "unclear" ? (
-        <p className="mt-1.5 text-xs text-gray-500">{SCORE_HINTS[2]}</p>
+        <p className="text-micro text-muted">{SCORE_HINTS[2]}</p>
       ) : null}
 
       {blockers.length > 0 ? (
-        <ul className="mt-1.5 space-y-0.5">
+        <ul className="flex flex-col gap-0.5">
           {blockers.map((b) => (
-            <li key={b} className="text-xs text-gray-600 dark:text-gray-400">
+            <li key={b} className="text-micro text-muted">
               · {b}
             </li>
           ))}
@@ -128,9 +131,9 @@ function VerdictDetail({ verdict }: { verdict: DecidedVerdict }) {
         블로커가 정책 대상을 한글로 적어주고, 여기서 고칠 자리를 알려준다.
       */}
       {verdict.verdict === "ineligible" && verdict.decided_by === "code" ? (
-        <p className="mt-1.5 text-xs text-gray-500">
+        <p className="text-micro text-muted">
           해당하는 조건이 있다면{" "}
-          <Link href="/profile" className="underline underline-offset-2">
+          <Link href="/profile" className="text-accent-ink underline underline-offset-2">
             내 조건
           </Link>
           에 추가해 보세요.
