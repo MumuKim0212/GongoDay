@@ -555,7 +555,7 @@
 
 ### 스크랩
 - [x] 스크랩 / 해제 — **상세 화면에서 작업 7에 했다** (Server Action)
-- [ ] 목록의 "스크랩만 보기" 필터
+- [x] 목록의 "스크랩만 보기" 필터 — 검색·출처와 같이 '전체 보기'로 풀리지 않는 사용자 필터다
 
 ### 배포 검증 ✅ **통과 (8/6)** — `BASE_URL=https://gongoday.vercel.app npx tsx scripts/release-check.mts`
 
