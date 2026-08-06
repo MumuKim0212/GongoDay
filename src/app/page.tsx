@@ -66,9 +66,17 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
 
       <section className="mt-5 flex flex-wrap items-center gap-2">
         {profile ? (
-          <span className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white opacity-50 dark:bg-white dark:text-gray-900">
-            내 조건으로 판정하기 (준비 중)
-          </span>
+          <>
+            <span className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white opacity-50 dark:bg-white dark:text-gray-900">
+              내 조건으로 판정하기 (준비 중)
+            </span>
+            <Link
+              href="/profile"
+              className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+            >
+              내 조건 수정
+            </Link>
+          </>
         ) : (
           <Link
             href="/profile"
