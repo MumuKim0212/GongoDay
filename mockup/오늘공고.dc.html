@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/broadsheet-01d703a1-1331-4b61-a14b-b744189e8823/styles.css">
+<script src="_ds/broadsheet-01d703a1-1331-4b61-a14b-b744189e8823/_ds_bundle.js"></script>
+</helmet>
+<div style="background:var(--color-bg);min-height:100vh;font-family:var(--font-body);color:var(--color-text)">
+
+  <nav class="nav" style="max-width:1040px;margin:0 auto">
+    <span class="nav-brand">오늘공고</span>
+    <span style="font-size:13px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">수도권 청년 지원정책, 오늘 신청 가능한 것만</span>
+  </nav>
+
+  <div style="max-width:1040px;margin:0 auto;padding:0 var(--space-4) var(--space-8)">
+
+    <sc-if value="{{ isOnboarding }}" hint-placeholder-val="{{ true }}">
+      <div style="max-width:520px;margin:calc(var(--space-8) * 1.5) auto 0">
+        <h1 style="font-size:32px;margin:0 0 var(--space-2)">조건을 한 번만 등록하세요</h1>
+        <p style="font-size:15px;opacity:0.75;margin:0 0 var(--space-6);max-width:44ch">등록해둔 조건으로 온통청년·정부24 공고 13,662건을 하나씩 대조해, 신청 가능한 것만 골라 보여드립니다.</p>
+        <div class="card elev-sm" style="gap:var(--space-4);padding:var(--space-4)">
+          <div class="field">
+            <label for="age-input">나이 (만)</label>
+            <input class="input" id="age-input" type="number" min="14" max="99" value="{{ ageInput }}" onChange="{{ onAgeChange }}">
+          </div>
+          <div class="field">
+            <label id="region-label">거주지역 (수도권)</label>
+            <div class="seg" role="radiogroup" aria-labelledby="region-label" style="width:100%">
+              <sc-for list="{{ regionOptions }}" as="opt" hint-placeholder-count="3">
+                <label class="seg-opt" style="flex:1;justify-content:center">
+                  <input type="radio" name="region" checked="{{ opt.checked }}" onChange="{{ opt.onSelect }}">{{ opt.label }}
+                </label>
+              </sc-for>
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary btn-block" onClick="{{ onStart }}">저장하고 공고 보기</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isList }}" hint-placeholder-val="{{ false }}">
+      <div style="padding-top:var(--space-6)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-4);flex-wrap:wrap;margin-bottom:var(--space-4)">
+          <div>
+            <h1 style="font-size:25px;margin:0 0 4px">내가 신청할 수 있는 공고</h1>
+            <p style="font-size:13px;margin:0;color:color-mix(in srgb, var(--color-text) 60%, transparent)">온통청년·정부24 총 13,662건 중, 만 {{ ageInput }}세 · {{ regionLabel }} 조건으로 판정한 결과</p>
+          </div>
+          <div class="seg" role="radiogroup" aria-label="보기 범위">
+            <label class="seg-opt"><input type="radio" name="scope" checked="{{ notShowAll }}" onChange="{{ onScopeFiltered }}">필터 적용</label>
+            <label class="seg-opt"><input type="radio" name="scope" checked="{{ showAll }}" onChange="{{ onScopeAll }}">전체 보기</label>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;margin-bottom:var(--space-5)">
+          <span class="tag tag-accent">해당 {{ counts.match }}</span>
+          <span class="tag tag-accent-2">애매 {{ counts.maybe }}</span>
+          <span class="tag tag-neutral">아님 {{ counts.no }}</span>
+        </div>
+
+        <div style="display:grid;gap:var(--space-3)">
+          <sc-for list="{{ visiblePostings }}" as="p" hint-placeholder-count="3">
+            <div class="card elev-sm" style="cursor:pointer;flex-direction:row;align-items:flex-start;gap:var(--space-4);opacity:{{ p.rowOpacity }}" onClick="{{ p.onOpen }}">
+              <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+                <div class="card-kicker">{{ p.source }}</div>
+                <div class="card-title">{{ p.title }}</div>
+                <p class="card-body" style="flex:none">{{ p.org }} · 마감 {{ p.deadline }}</p>
+                <div class="card-meta" style="gap:8px;flex-wrap:wrap">
+                  <span class="tag tag-neutral">{{ p.region }}</span>
+                  <span class="tag tag-neutral">{{ p.field }}</span>
+                  <sc-if value="{{ p.outOfFilter }}" hint-placeholder-val="{{ false }}">
+                    <span class="tag tag-outline">조건 밖</span>
+                  </sc-if>
+                </div>
+              </div>
+              <span class="tag {{ p.verdictTagClass }}" style="flex:none;font-size:12px;padding:5px 12px">{{ p.verdictLabel }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isDetail }}" hint-placeholder-val="{{ false }}">
+      <div style="padding-top:var(--space-6);max-width:680px">
+        <button type="button" class="btn btn-ghost" style="padding-inline:0;margin-bottom:var(--space-4)" onClick="{{ onBack }}">← 목록으로</button>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-4);margin-bottom:var(--space-2)">
+          <h1 style="font-size:28px;margin:0">{{ selected.title }}</h1>
+          <span class="tag {{ selected.verdictTagClass }}" style="flex:none;font-size:12px;padding:5px 12px">{{ selected.verdictLabel }}</span>
+        </div>
+        <p style="font-size:13px;color:color-mix(in srgb, var(--color-text) 60%, transparent);margin:0 0 var(--space-2)">{{ selected.source }} · {{ selected.org }} · 마감 {{ selected.deadline }}</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:var(--space-5)">
+          <span class="tag tag-neutral">{{ selected.region }}</span>
+          <span class="tag tag-neutral">{{ selected.field }}</span>
+          <span class="tag tag-neutral">{{ selected.targetAge }}</span>
+        </div>
+
+        <div class="card elev-sm" style="margin-bottom:var(--space-5)">
+          <div class="card-kicker">판정 근거</div>
+          <p class="card-body" style="opacity:1;font-size:14.5px">{{ selected.reason }}</p>
+        </div>
+
+        <h2 style="font-size:16px;margin:0 0 var(--space-2)">원문</h2>
+        <p style="font-size:15px;line-height:1.7;color:color-mix(in srgb, var(--color-text) 85%, transparent);margin:0 0 var(--space-5)" dangerouslySetInnerHTML="{{ selected.fullTextHtml }}"></p>
+
+        <button type="button" class="{{ selected.scrapBtnClass }}" onClick="{{ onToggleScrap }}">{{ selected.scrapLabel }}</button>
+      </div>
+    </sc-if>
+
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const REGIONS = ['서울', '인천', '경기'];
+
+const POSTINGS = [
+  {
+    id: 1, source: '청년몽땅정보통', org: '서울특별시', title: '서울 청년 월세 지원사업',
+    deadline: '2026-08-31', region: '서울', field: '주거', targetAge: '만 19~39세',
+    ageMin: 19, ageMax: 39, regions: ['서울'],
+    verdict: 'match',
+    reason: '신청일 기준 서울특별시에 주민등록을 두고 있는 만 19세 이상 39세 이하 무주택 청년이라는 조건에 등록하신 나이·거주지역이 그대로 부합합니다.',
+    quote: '신청일 기준 서울특별시에 주민등록을 두고 있는 만 19세 이상 39세 이하 무주택 청년',
+    fullText: '서울 청년 월세 지원사업은 [[신청일 기준 서울특별시에 주민등록을 두고 있는 만 19세 이상 39세 이하 무주택 청년]]을 대상으로 하며, 기준 중위소득 150% 이하 가구의 청년에게 월 20만원씩 최대 12개월간 월세를 지원합니다. 임차보증금 5천만원 이하, 월세 60만원 이하인 주택에 실제 거주 중인 자에 한합니다.',
+  },
+  {
+    id: 2, source: '정부24', org: '경기도', title: '경기도 청년 노동자 통장',
+    deadline: '2026-09-15', region: '경기', field: '자산형성', targetAge: '만 18~34세',
+    ageMin: 18, ageMax: 34, regions: ['경기'],
+    verdict: 'maybe',
+    reason: '나이·거주지역 조건은 부합하지만, 가구 소득 기준은 공고문에 "별도 공고 예정"으로만 명시되어 있어 코드로 확정할 수 없습니다. AI 판정도 이 지점에서 애매로 처리했습니다.',
+    quote: '소득 요건은 자산형성사업 통합 공고 시 별도 안내 예정',
+    fullText: '경기도에 주민등록을 두고 있는 만 18세 이상 34세 이하 재직 청년을 대상으로, 3년간 매월 10만원을 저축하면 경기도가 같은 금액을 매칭하여 지원합니다. [[소득 요건은 자산형성사업 통합 공고 시 별도 안내 예정]]이며, 세부 기준 공고 전까지는 잠정 대상자로만 안내됩니다.',
+  },
+  {
+    id: 3, source: '온통청년', org: '인천광역시', title: '인천 청년 전세보증금 반환보증료 지원',
+    deadline: '2026-08-20', region: '인천', field: '주거', targetAge: '만 19~39세',
+    ageMin: 19, ageMax: 39, regions: ['인천'],
+    verdict: 'no',
+    reason: '나이 조건은 맞지만, "인천광역시에 6개월 이상 계속하여 거주"라는 거주기간 요건을 등록하신 조건(거주지역만 등록, 거주기간 정보 없음)만으로는 충족을 확인할 수 없어 코드가 아님으로 처리했습니다.',
+    quote: '인천광역시에 6개월 이상 계속하여 거주한 자',
+    fullText: '전세보증금 반환보증에 가입한 [[인천광역시에 6개월 이상 계속하여 거주한 자]]로서 만 19세 이상 39세 이하 무주택 청년에게 보증료 전액을 환급합니다. 보증가입일 기준 전입신고가 되어 있어야 하며, 타 지자체 유사 지원사업과 중복 신청은 불가합니다.',
+  },
+];
+
+const VERDICT_META = {
+  match: { label: '해당', cls: 'tag-accent' },
+  maybe: { label: '애매', cls: 'tag-accent-2' },
+  no: { label: '아님', cls: 'tag-neutral' },
+};
+
+class Component extends DCLogic {
+  state = {
+    screen: 'onboarding',
+    age: 28,
+    region: '서울',
+    showAll: false,
+    selectedId: null,
+    scrapped: {},
+  };
+
+  renderVals() {
+    const s = this.state;
+    const regionOptions = REGIONS.map(r => ({
+      label: r, checked: r === s.region,
+      onSelect: () => this.setState({ region: r }),
+    }));
+
+    const inFilter = (p) => p.ageMin <= s.age && s.age <= p.ageMax && p.regions.includes(s.region);
+
+    const postings = POSTINGS.map(p => {
+      const meta = VERDICT_META[p.verdict];
+      const outOfFilter = !inFilter(p);
+      const html = p.fullText.replace(
+        '[[' + p.quote + ']]',
+        '<mark style="background:var(--color-accent-100);color:var(--color-accent-800);padding:0 2px;border-radius:2px">' + p.quote + '</mark>'
+      );
+      return {
+        ...p,
+        verdictLabel: meta.label,
+        verdictTagClass: meta.cls,
+        outOfFilter,
+        rowOpacity: outOfFilter && s.showAll ? 0.5 : 1,
+        onOpen: () => this.setState({ screen: 'detail', selectedId: p.id }),
+        reasonHtml: p.reason,
+        fullTextHtml: { __html: html },
+        scrapped: !!s.scrapped[p.id],
+      };
+    });
+
+    const visiblePostings = s.showAll ? postings : postings.filter(p => !p.outOfFilter);
+
+    const counts = {
+      match: postings.filter(p => p.verdict === 'match' && !p.outOfFilter).length,
+      maybe: postings.filter(p => p.verdict === 'maybe' && !p.outOfFilter).length,
+      no: postings.filter(p => p.verdict === 'no' && !p.outOfFilter).length,
+    };
+
+    const selectedRaw = postings.find(p => p.id === s.selectedId) || postings[0];
+    const scrapped = !!s.scrapped[selectedRaw.id];
+    const selected = {
+      ...selectedRaw,
+      scrapLabel: scrapped ? '스크랩됨 ✓' : '스크랩하기',
+      scrapBtnClass: scrapped ? 'btn btn-secondary' : 'btn btn-primary',
+    };
+
+    return {
+      isOnboarding: s.screen === 'onboarding',
+      isList: s.screen === 'list',
+      isDetail: s.screen === 'detail',
+      ageInput: s.age,
+      onAgeChange: (e) => this.setState({ age: Number(e.target.value) || 0 }),
+      regionOptions,
+      regionLabel: s.region,
+      onStart: () => this.setState({ screen: 'list' }),
+      notShowAll: !s.showAll,
+      showAll: s.showAll,
+      onScopeFiltered: () => this.setState({ showAll: false }),
+      onScopeAll: () => this.setState({ showAll: true }),
+      counts,
+      visiblePostings,
+      selected,
+      onBack: () => this.setState({ screen: 'list' }),
+      onToggleScrap: () => {
+        const id = selected.id;
+        this.setState(st => ({ scrapped: { ...st.scrapped, [id]: !st.scrapped[id] } }));
+      },
+    };
+  }
+}
+
+</script>
+</body>
+</html>

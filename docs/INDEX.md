@@ -11,6 +11,7 @@ Project3 :: 수도권 지원정책 해당 판정 서비스 **"오늘공고"**
 | 무슨 기능이 있나 | [PRD.md](PRD.md) §6 |
 | AI가 정확히 무엇을 하나 | [PRD.md](PRD.md) §7 |
 | 지금 무엇을 구현해야 하나 | [TODO.md](TODO.md) |
+| **화면 색·서체·여백을 어떻게 정하나** | [DESIGN.md](DESIGN.md) |
 | 테이블을 어떻게 만드나 | [ARCHITECTURE.md](ARCHITECTURE.md) §2 |
 | 두 소스를 어떻게 한 스키마에 담나 | [ARCHITECTURE.md](ARCHITECTURE.md) §2.1.2~§2.1.4 |
 | 지역을 어떻게 판정하나 | [ARCHITECTURE.md](ARCHITECTURE.md) §2.6 |
@@ -29,6 +30,7 @@ docs/
 ├── PRD.md                무엇을 · 왜          ← 내가 씀, 바뀜
 ├── ARCHITECTURE.md       어떻게               ← 내가 씀, 바뀜
 ├── TODO.md               어떤 순서로           ← 내가 씀, 자주 바뀜
+├── DESIGN.md             어떻게 보이나          ← 내가 씀, 작업하며 채움
 │
 ├── assignment/           과정에서 주어진 것    ← 수정 금지
 ├── api/                  외부 API 명세 + 검증기록
