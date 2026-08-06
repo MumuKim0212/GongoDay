@@ -3,11 +3,10 @@ import { Noto_Sans_KR, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
 
 /**
- * 산세리프 페어링 (docs/DESIGN.md §2.3, 일탈 D9)
+ * 산세리프 페어링 (docs/DESIGN.md §2.3)
  *
- * **원본 Broadsheet은 전부 세리프다** — 그 원칙을 여기서 버렸다. 이유는 §7에 있다.
- * 서체만 갈아탔고 페어링 구조는 그대로다: Source Sans 3은 전에 쓰던 Source Serif 4의
- * 산세리프 형제라 자폭·리듬이 같은 계열이고, 한글은 Noto Serif KR → Noto Sans KR로 옮겼다.
+ * **서체는 하나의 산세리프 페어링이다** (§1 원칙 2). Source Sans 3은 Source Serif 4의
+ * 산세리프 형제라 자폭·리듬이 같은 계열이고, 한글은 Noto Sans KR이 받는다.
  *
  * Source Sans 3에는 한글 글리프가 없다. 라틴·숫자를 Source Sans 3이 잡고, 한글은 스택의
  * 다음 자리인 Noto Sans KR로 넘어간다 — 순서는 `globals.css`의 `--sans`가 정한다.

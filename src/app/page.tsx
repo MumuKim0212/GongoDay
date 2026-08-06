@@ -91,7 +91,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
       </header>
 
       <main className="mx-auto w-full max-w-page px-4 pt-12 pb-8">
-        {/* 히어로 — **이 한 블록만 가운데다** (§5.1, 일탈 D7). 아래 둘러보기부터는 왼쪽 정렬이다.
+        {/* 히어로 — **이 한 블록만 가운데다** (§5.1). 아래 둘러보기부터는 왼쪽 정렬이다.
             REQ-05 + 이름 해석 고정 (F-32) — "오늘 올라온 공고"로 읽히면 안 된다.
             **이탤릭으로 강조하지 않는다** — 강조할 구절이 한글이고 Noto Serif KR에는 이탤릭
             페이스가 없어 합성 기울임이 된다 (§2.3). 제목의 600 위에 700을 얹는다. */}

@@ -49,7 +49,7 @@ export function ProfileForm({ initial }: { initial: ProfileValues | null }) {
   return (
     <form action={formAction} className="mt-6 space-y-7">
       <Section legend="생년">
-        {/* `--spacing` 확대로 160px까지 벌어졌던 것을 되돌린다 — 네 자리 연도에 그만한 폭은 없다 (§8-2) */}
+        {/* `--spacing` 확대로 160px까지 벌어졌던 것을 되돌린다 — 네 자리 연도에 그만한 폭은 없다 (DESIGN.md §5.3) */}
         <input
           type="number"
           name="birth_year"
