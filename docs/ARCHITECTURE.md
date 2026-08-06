@@ -382,7 +382,8 @@ src/
   proxy.ts                       세션 쿠키 갱신 + 익명 로그인 (§1.1) — 빠뜨리면 조용히 망가진다
   app/
     page.tsx                     목록 (홈) — 서버 컴포넌트
-    policies/[id]/page.tsx       상세
+    policies/[id]/page.tsx       상세 — 근거 원문 + 하이라이트 + 신청 안내
+    policies/[id]/actions.ts     스크랩 토글 (Server Action)
     profile/page.tsx             프로필 설정
     profile/actions.ts           프로필 저장 (Server Action)
     api/
@@ -408,8 +409,8 @@ src/
   components/
     PolicyList.tsx               판정 버튼 · 판정 상태 · 페이지 내 정렬 (클라이언트)
     PolicyCard.tsx  badges.tsx (VerdictBadge · SourceBadge · CategoryBadge)
+    QuoteHighlight.tsx           근거 원문 + 인용 구간 (§5.4)
     ListControls.tsx (분야·검색·출처·전체보기)  ProfileForm.tsx  SyncButton.tsx
-    ScrapButton  QuoteHighlight                          ← 작업 7·8
 supabase/
   schema.sql                     스키마 단일 진실 원천
 ```
@@ -819,13 +820,20 @@ export function locateQuote(sourceText: string, quote: string):
 | 블록 | 내용 | 하이라이트 |
 |---|---|---|
 | **판정 근거 원문** | `buildSourceText()` 출력 — 검증과 완전히 같은 문자열 | ✅ `locateQuote()` 구간 |
-| **신청 안내** | 신청방법 · 구비서류 · 심사방법 · 문의처 | ❌ |
+| **신청 안내** | 신청방법 · 구비서류 · 심사방법 | ❌ |
 
 + 판정 배지 · `decided_by` 표시 · 원문 링크 · 스크랩
 
 **나누는 이유**: 판정에 쓰인 텍스트와 안 쓰인 텍스트를 섞으면 사용자가 "이 문장을 보고 판정했나?"를 알 수 없다. 그리고 §5.3에서 신청방법을 조립에 넣지 않기로 했으므로 그 정보를 보여주려면 별도 블록이 필요하다.
 
 검증 실패한 판정은 하이라이트 없이 "근거를 원문에서 찾지 못했습니다"만 표시한다.
+
+**하이라이트 구간은 저장하지 않는다 — 화면이 매번 다시 찾는다.** 저장하면 수집이 원문을 갱신했을 때 **원문과 어긋난 좌표가 남는다.** 다시 찾아 실패하면 판정은 그대로 두고 "근거를 원문에서 찾지 못했습니다. 원문이 갱신되었을 수 있습니다"라고 말한다.
+
+> **문의처는 넣지 않았다.** 정부24 `전화문의`는 `raw`에만 있고 컬럼이 없다. 컬럼을 만들면 스키마 변경 +
+> 전량 재수집이고, `raw`를 화면에서 읽으면 **"소스별 분기는 수집에서 끝난다"**(PRD §7.1)가 깨진다.
+> 원문 링크로 넘긴다. **정부24는 `구비서류`·`심사방법` 필드 자체가 없어**(응답 키 전수 확인)
+> 신청 안내가 `신청방법` 한 줄이고, 온통청년은 21%가 원문 링크조차 없다 — 없으면 없다고 적는다.
 
 ### 6.3 프로필 `/profile`
 
