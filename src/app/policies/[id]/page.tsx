@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { ScoreBadge } from "@/components/badges";
+import { CategoryBadge, ScoreBadge } from "@/components/badges";
 import { QuoteHighlight } from "@/components/QuoteHighlight";
 import { CATEGORY_LABELS, type Category } from "@/lib/sources/category";
 import { createClient } from "@/lib/supabase/server";
@@ -109,18 +109,32 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
   return (
     <Shell>
       <header>
-        <h1 className="text-xl font-bold">{policy.title}</h1>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
-          <span className="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
-            {policy.source === "youth" ? "온통청년" : "정부24"}
-          </span>
-          {policy.categories.map((c) => (
-            <span key={c} className="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
-              {CATEGORY_LABELS[c as Category] ?? c}
-            </span>
-          ))}
-          {policy.org_name ? <span>{policy.org_name}</span> : null}
+        {/* 제목과 점수를 같은 줄에 둔다 — 목록에서 본 배지가 그 자리에 그대로 있어야 이어진다 */}
+        <div className="flex items-start justify-between gap-4">
+          <h1 className="text-title">{policy.title}</h1>
+          {verdict ? (
+            <ScoreBadge
+              score={scoreOf(verdict)}
+              checkCount={verdict.checks.length}
+              decidedBy={verdict.decided_by}
+            />
+          ) : null}
         </div>
+
+        {/* 출처와 기관은 알약이 아니라 메타 한 줄이다 (DESIGN.md §5.2) */}
+        <p className="text-small text-muted mt-2">
+          {[policy.source === "youth" ? "온통청년" : "정부24", policy.org_name]
+            .filter((v): v is string => Boolean(v))
+            .join(" · ")}
+        </p>
+
+        {policy.categories.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {policy.categories.map((c) => (
+              <CategoryBadge key={c} label={CATEGORY_LABELS[c as Category] ?? c} />
+            ))}
+          </div>
+        ) : null}
       </header>
 
       <section className="mt-4 flex flex-wrap items-center gap-2">
@@ -129,52 +143,48 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
             href={policy.source_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+            className="btn btn-secondary"
           >
             원문 보기 ↗
           </a>
         ) : (
           // 온통청년의 21%는 링크가 없다. 없는 것을 없다고 말한다.
-          <span className="text-xs text-gray-500">이 정책에는 원문 링크가 없습니다</span>
+          <span className="text-micro text-muted">이 정책에는 원문 링크가 없습니다</span>
         )}
 
         {user ? (
           <form action={toggleScrap}>
             <input type="hidden" name="policy_id" value={policy.id} />
             <input type="hidden" name="scrapped" value={scrapRow ? "1" : "0"} />
-            <button
-              type="submit"
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-            >
+            {/* 이미 스크랩한 것은 물러난다 — 해제는 되돌리는 동작이지 권하는 동작이 아니다 */}
+            <button type="submit" className={scrapRow ? "btn btn-ghost" : "btn btn-secondary"}>
               {scrapRow ? "★ 스크랩 해제" : "☆ 스크랩"}
             </button>
           </form>
         ) : (
-          <span className="text-xs text-gray-500">세션이 없어 스크랩할 수 없습니다</span>
+          <span className="text-micro text-muted">세션이 없어 스크랩할 수 없습니다</span>
         )}
       </section>
 
-      {/* 판정 결과 — 목록에서 이미 판정한 것을 그대로 읽는다. 이 화면은 Gemini를 부르지 않는다 */}
-      <section className="mt-5 rounded border border-gray-200 p-4 dark:border-gray-800">
+      {/*
+        판정 결과 — 목록에서 이미 판정한 것을 그대로 읽는다. 이 화면은 Gemini를 부르지 않는다.
+        **이 화면에서 상자를 두르는 블록은 여기 하나뿐이다** (DESIGN.md §5.2). 나머지 구획은
+        제목과 여백이 나눈다 — 지면에 선을 긋지 않는 것이 이 시스템의 첫 규칙이다.
+      */}
+      <section className="card elev-sm mt-5">
+        <div className="card-kicker">판정 근거</div>
         {verdict ? (
           <>
-            <div className="flex flex-wrap items-center gap-2">
-              <ScoreBadge
-                score={scoreOf(verdict)}
-                checkCount={verdict.checks.length}
-                decidedBy={verdict.decided_by}
-              />
-              {verdict.reason ? <p className="text-sm">{verdict.reason}</p> : null}
-            </div>
-            <p className="mt-1.5 text-xs text-gray-500">{SCORE_HINTS[scoreOf(verdict)]}</p>
+            {verdict.reason ? <p className="text-compact">{verdict.reason}</p> : null}
+            <p className="text-micro text-muted">{SCORE_HINTS[scoreOf(verdict)]}</p>
 
             {/* 점수의 근거 (§5.6). 목록 카드와 같은 목록을 보여준다 */}
             {verdict.checks.length > 0 ? (
-              <div className="mt-2 rounded bg-gray-50 p-3 dark:bg-gray-900">
-                <p className="text-sm font-medium">확인이 필요한 것</p>
-                <ul className="mt-1 space-y-0.5">
+              <div className="rounded-md bg-[var(--paper)] p-3">
+                <p className="text-compact font-semibold">확인이 필요한 것</p>
+                <ul className="mt-1 flex flex-col gap-0.5">
                   {verdict.checks.map((c) => (
-                    <li key={c} className="text-sm text-gray-700 dark:text-gray-300">
+                    <li key={c} className="text-compact">
                       · {c}
                     </li>
                   ))}
@@ -182,9 +192,9 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
               </div>
             ) : null}
             {verdict.blockers.length > 0 ? (
-              <ul className="mt-2 space-y-0.5">
+              <ul className="flex flex-col gap-0.5">
                 {verdict.blockers.map((b) => (
-                  <li key={b} className="text-xs text-gray-600 dark:text-gray-400">
+                  <li key={b} className="text-micro text-muted">
                     · {b}
                   </li>
                 ))}
@@ -192,15 +202,15 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
             ) : null}
             {verdict.quote_verified && highlight === null ? (
               // 저장할 때는 원문에 있었는데 지금은 없다 = 그 사이 수집이 원문을 갱신했다
-              <p className="mt-2 text-xs text-gray-500">
+              <p className="text-micro text-muted">
                 근거를 원문에서 찾지 못했습니다. 원문이 갱신되었을 수 있습니다.
               </p>
             ) : null}
           </>
         ) : (
-          <p className="text-sm text-gray-600 dark:text-gray-400">
+          <p className="text-compact">
             아직 판정하지 않은 정책입니다.{" "}
-            <Link href="/" className="underline underline-offset-2">
+            <Link href="/" className="text-accent-ink underline underline-offset-2">
               목록
             </Link>
             에서 <strong>판정하기</strong>를 누르면 이 정책도 함께 판정됩니다.
@@ -209,30 +219,30 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
       </section>
 
       <section className="mt-6">
-        <h2 className="font-semibold">판정 근거 원문</h2>
-        <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
+        <h2 className="text-sub">판정 근거 원문</h2>
+        <p className="text-micro text-muted mt-1">
           AI에게 넘긴 텍스트 그대로입니다.
           {highlight ? " 표시된 문장이 판정 근거로 인용된 문장입니다." : ""}
         </p>
-        <div className="mt-2 rounded border border-gray-200 p-4 dark:border-gray-800">
+        <div className="mt-2">
           <QuoteHighlight text={sourceText} range={highlight} />
         </div>
       </section>
 
       <section className="mt-6">
-        <h2 className="font-semibold">신청 안내</h2>
-        <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
+        <h2 className="text-sub">신청 안내</h2>
+        <p className="text-micro text-muted mt-1">
           {/* 판정에 안 쓴 텍스트를 섞으면 "이 문장을 보고 판정했나"를 알 수 없다 (§5.3) */}
           판정에는 쓰이지 않은 정보입니다. 최종 확인은 원문에서 해주세요.
         </p>
-        <div className="mt-2 rounded border border-gray-200 p-4 text-sm dark:border-gray-800">
+        <div className="text-compact mt-2">
           {hasGuide ? (
-            <dl className="space-y-3">
+            <dl className="flex flex-col gap-4">
               {guide.map(([label, value]) =>
                 value === null ? null : (
                   <div key={label}>
-                    <dt className="text-xs font-medium text-gray-500">{label}</dt>
-                    <dd className="mt-0.5 whitespace-pre-wrap break-words leading-relaxed">
+                    <dt className="text-micro text-muted">{label}</dt>
+                    <dd className="mt-0.5 leading-[1.7] break-words whitespace-pre-wrap">
                       {value}
                     </dd>
                   </div>
@@ -240,7 +250,7 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
               )}
             </dl>
           ) : (
-            <p className="text-gray-600 dark:text-gray-400">
+            <p className="text-muted">
               이 정책에는 신청 안내가 제공되지 않습니다. 원문에서 확인해 주세요.
             </p>
           )}
@@ -252,11 +262,10 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-8">
-      <Link
-        href="/"
-        className="text-sm text-gray-600 underline-offset-2 hover:underline dark:text-gray-400"
-      >
+    // 읽는 화면이라 목록보다 좁다 — 한 줄이 길어지면 눈이 다음 줄 첫 글자를 놓친다 (§2.4)
+    <main className="max-w-read mx-auto w-full px-4 py-8">
+      {/* `px-0`으로 고스트 버튼의 안쪽 여백을 지워 본문 왼쪽 끝에 맞춘다 */}
+      <Link href="/" className="btn btn-ghost px-0">
         ← 목록으로
       </Link>
       <div className="mt-3">{children}</div>
@@ -264,11 +273,12 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** 빈 상태와 같은 형태다 — 상자를 두르지 않고 여백으로 세운다 (§4.7) */
 function Notice({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded border border-gray-200 p-4 dark:border-gray-800">
-      <p className="font-medium">{title}</p>
-      <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{body}</p>
+    <div className="py-8">
+      <p className="text-sub">{title}</p>
+      <p className="text-small text-muted mt-1">{body}</p>
     </div>
   );
 }

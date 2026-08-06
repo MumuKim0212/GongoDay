@@ -16,7 +16,8 @@ export function QuoteHighlight({
   range: { start: number; end: number } | null;
 }) {
   // 개행을 살려서 보여준다. 접으면 원문을 읽을 수 없고, 인덱스 맵을 둔 이유도 사라진다.
-  const className = "whitespace-pre-wrap break-words text-sm leading-relaxed";
+  // 행간 1.7 — 길게 이어지는 한글 원문이라 기본 1.55에서는 줄이 뭉친다 (DESIGN.md §2.3).
+  const className = "text-compact leading-[1.7] break-words whitespace-pre-wrap";
 
   if (range === null) return <div className={className}>{text}</div>;
 
