@@ -180,7 +180,7 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
 
             {/* 점수의 근거 (§5.6). 목록 카드와 같은 목록을 보여준다 */}
             {verdict.checks.length > 0 ? (
-              <div className="rounded-md bg-[var(--paper)] p-3">
+              <div className="rounded-sm bg-[var(--paper)] p-3">
                 <p className="text-compact font-semibold">확인이 필요한 것</p>
                 <ul className="mt-1 flex flex-col gap-0.5">
                   {verdict.checks.map((c) => (

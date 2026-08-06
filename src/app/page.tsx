@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ListControls } from "@/components/ListControls";
 import { PolicyList } from "@/components/PolicyList";
 import { CATEGORIES, DEFAULT_CATEGORIES, type Category } from "@/lib/sources/category";
+import { SIDO_NAMES } from "@/lib/sources/region";
 import { PAGE_SIZE, defaultFilters, fetchPolicies, type ListFilters } from "@/lib/policies/query";
 import { createClient } from "@/lib/supabase/server";
 import { lastFullSync } from "@/lib/sync/last-full";
@@ -15,6 +16,9 @@ import type { DecidedVerdict } from "@/lib/verdict/validate";
 export const dynamic = "force-dynamic";
 
 type Search = Record<string, string | string[] | undefined>;
+
+/** 타일 그리드가 기본이다 (§5.1). 목록은 판정 근거까지 펼쳐 보고 싶을 때 고른다. */
+type View = "tile" | "list";
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? null;
 
@@ -57,6 +61,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
     page: Math.max(1, Number.parseInt(one(sp.page) ?? "1", 10) || 1),
   };
 
+  // 보기 방식은 필터가 아니라 표시 방식이라 `filters`에 넣지 않는다 — 조회는 그대로다.
+  const view: View = one(sp.view) === "list" ? "list" : "tile";
+
   const { rows, filteredCount, totalCount, error } = await fetchPolicies(supabase, filters);
   const [verdicts, syncedAt] = await Promise.all([
     fetchVerdicts(
@@ -71,101 +78,121 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
   const lastPage = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE));
 
   return (
-    <main className="mx-auto w-full max-w-page px-4 py-8">
-      {/* 브랜드 줄 — 목업의 nav다. 한 화면에만 있으므로 클래스로 빼지 않는다 (DESIGN.md §3) */}
-      <header className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <span className="flex items-center gap-2">
-          <Image src="/logo.svg" alt="" width={28} height={28} priority />
-          <h1 className="text-section">오늘공고</h1>
-        </span>
-        {/* REQ-05 + 이름 해석 고정 (F-32) — "오늘 올라온 공고"로 읽히면 안 된다 */}
-        <p className="text-small text-muted">
-          오늘, <strong>내가 신청할 수 있는</strong> 공고만.
-        </p>
+    <>
+      {/* 마스트헤드 — 브랜드는 왼쪽, 지금 할 일은 오른쪽 위 (DESIGN.md §5.1).
+          한 화면에만 있으므로 컴포넌트로 빼지 않는다 (§3) */}
+      <header className="bg-bg/85 border-divider sticky top-0 z-10 border-b backdrop-blur-sm">
+        <div className="mx-auto flex w-full max-w-page items-center justify-between gap-3 px-4 py-2">
+          <span className="flex items-center gap-2">
+            <Image src="/logo.svg" alt="" width={28} height={28} priority />
+            <span className="text-section">오늘공고</span>
+          </span>
+          {/* 프로필로 가는 문은 이 하나뿐이다. 목록 쪽에 같은 링크를 또 두면 기능이 겹친다.
+              조건이 없을 때만 채움이다 — 그때는 판정 버튼이 없으므로 채움은 여전히 화면에 하나다 (§5.1) */}
+          <Link href="/profile" className={profile ? "btn btn-secondary" : "btn btn-primary"}>
+            {profile ? "내 조건 수정" : "내 조건 입력하기"}
+          </Link>
+        </div>
       </header>
 
-      <p className="text-small text-muted mt-4">
-        조건을 한 번 넣어두면 온통청년·정부24의 지원정책을 한 곳에서 걸러 보여줍니다.
-      </p>
+      <main className="mx-auto w-full max-w-page px-4 py-8">
+        {/* 히어로 — **이 한 블록만 가운데다** (§5.1, 일탈 D7). 아래 둘러보기부터는 왼쪽 정렬이다.
+            REQ-05 + 이름 해석 고정 (F-32) — "오늘 올라온 공고"로 읽히면 안 된다.
+            **이탤릭으로 강조하지 않는다** — 강조할 구절이 한글이고 Noto Serif KR에는 이탤릭
+            페이스가 없어 합성 기울임이 된다 (§2.3). 제목의 600 위에 700을 얹는다. */}
+        <div className="mx-auto max-w-read text-center">
+          <h1 className="text-display text-balance">
+            오늘, <strong className="font-bold">내가 신청할 수 있는</strong> 공고만.
+          </h1>
 
-      {/* 채움 버튼은 아래 '판정하기' 하나뿐이라 여기는 외곽선이다 (§5.1) */}
-      <section className="mt-4 flex flex-wrap items-center gap-2">
-        <Link href="/profile" className="btn btn-secondary">
-          {profile ? "내 조건 수정" : "내 조건 입력하기"}
-        </Link>
-      </section>
+          <p className="text-body text-muted mt-3 text-balance">
+            조건을 한 번 넣어두면 온통청년·정부24의 지원정책을 한 곳에서 걸러 보여줍니다.
+          </p>
+        </div>
 
-      <p className="text-small text-muted mt-3">
-        {filters.showAll ? (
-          <>전체 {totalCount.toLocaleString()}건</>
-        ) : (
-          <>
-            {/* "내 조건에 맞는"이라고 쓰면 AI 판정을 마친 것처럼 읽힌다 (§6.1) */}
-            코드 조건 통과{" "}
-            <strong className="text-[var(--ink)]">{filteredCount.toLocaleString()}</strong>건 / 전체{" "}
-            {totalCount.toLocaleString()}건
-          </>
-        )}
-        {!profile ? <span> — 조건을 넣으면 더 좁혀집니다</span> : null}
-      </p>
+        {/* ⚠️ `main`의 직계 `p`로 남아야 한다 — release-check의 `countText()`가 이 선택자로 읽는다 */}
+        <p className="text-small text-muted mt-4 text-center">
+          <span className="tag tag-accent tabular-nums">
+            {filters.showAll ? (
+              <>전체 {totalCount.toLocaleString()}건</>
+            ) : (
+              <>
+                {/* "내 조건에 맞는"이라고 쓰면 AI 판정을 마친 것처럼 읽힌다 (§6.1) */}
+                코드 조건 통과 <strong>{filteredCount.toLocaleString()}</strong>건 / 전체{" "}
+                {totalCount.toLocaleString()}건
+              </>
+            )}
+          </span>
+          {!profile ? <span className="ml-2">조건을 넣으면 더 좁혀집니다</span> : null}
+        </p>
 
-      <section className="mt-3">
-        <ListControls
-          categories={filters.categories}
-          q={filters.q}
-          source={filters.source}
-          showAll={filters.showAll}
-          scrapsOnly={scrapsOnly}
-        />
-      </section>
+        <ConditionConsole summary={profile ? profileSummary(profile) : null} />
 
-      <section className="mt-5">
-        {error ? (
-          <EmptyState
-            title="목록을 불러오지 못했습니다"
-            body="잠시 후 새로고침해 주세요. 수집된 데이터는 그대로 남아 있습니다."
-          />
-        ) : rows.length > 0 ? (
-          <PolicyList
-            // 페이지·필터가 바뀌면 판정 상태를 새로 시작한다. 안 그러면 서버가 내려준
-            // 저장된 판정(initialVerdicts)이 옛 상태에 가려 안 보인다.
-            key={rows.map((r) => r.id).join(",")}
-            rows={rows}
-            initialVerdicts={verdicts}
-            hasSession={user !== null}
-            hasProfile={profile !== null}
-          />
-        ) : scrapsOnly ? (
-          <EmptyState
-            title="스크랩한 정책이 없습니다"
-            body="정책 상세 화면에서 ☆ 스크랩을 누르면 여기에 모입니다."
-          />
-        ) : filters.q || filters.source ? (
-          // **검색·출처가 걸려 있으면 '수집된 정책이 없다'고 말하면 안 된다.** `totalCount`는
-          // 검색어까지 반영한 값이라, 오타 하나로 "데이터가 없으니 갱신하라"는 거짓 안내가 뜬다 (§7).
-          <EmptyState
-            title="검색 결과가 없습니다"
-            body="검색어를 지우거나 출처 필터를 '전체'로 바꿔 보세요."
-          />
-        ) : totalCount === 0 ? (
-          <EmptyState
-            title="아직 수집된 정책이 없습니다"
-            body="정책은 매시간 자동으로 받아옵니다. 잠시 후 새로고침해 주세요."
-          />
-        ) : (
-          <EmptyState
-            title="이 조건에 맞는 정책이 없습니다"
-            body="분야를 더 켜거나 '전체 보기'를 켜면 걸러진 정책도 볼 수 있습니다."
-          />
-        )}
-      </section>
+        {/* 둘러보기 머리줄 — 제목 옆이 보기 전환 자리다 */}
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-section">공고 둘러보기</h2>
+          <ViewToggle view={view} sp={sp} />
+        </div>
 
-      {lastPage > 1 && rows.length > 0 ? (
-        <Pager page={filters.page} lastPage={lastPage} sp={sp} />
-      ) : null}
+        <section className="mt-3">
+          <ListControls
+            categories={filters.categories}
+            q={filters.q}
+            source={filters.source}
+            showAll={filters.showAll}
+            scrapsOnly={scrapsOnly}
+          />
+        </section>
 
-      <SyncFooter at={latestOf(syncedAt)} />
-    </main>
+        <section className="mt-5">
+          {error ? (
+            <EmptyState
+              title="목록을 불러오지 못했습니다"
+              body="잠시 후 새로고침해 주세요. 수집된 데이터는 그대로 남아 있습니다."
+            />
+          ) : rows.length > 0 ? (
+            <PolicyList
+              // 페이지·필터가 바뀌면 판정 상태를 새로 시작한다. 안 그러면 서버가 내려준
+              // 저장된 판정(initialVerdicts)이 옛 상태에 가려 안 보인다.
+              key={rows.map((r) => r.id).join(",")}
+              rows={rows}
+              initialVerdicts={verdicts}
+              hasSession={user !== null}
+              hasProfile={profile !== null}
+              view={view}
+            />
+          ) : scrapsOnly ? (
+            <EmptyState
+              title="스크랩한 정책이 없습니다"
+              body="정책 상세 화면에서 ☆ 스크랩을 누르면 여기에 모입니다."
+            />
+          ) : filters.q || filters.source ? (
+            // **검색·출처가 걸려 있으면 '수집된 정책이 없다'고 말하면 안 된다.** `totalCount`는
+            // 검색어까지 반영한 값이라, 오타 하나로 "데이터가 없으니 갱신하라"는 거짓 안내가 뜬다 (§7).
+            <EmptyState
+              title="검색 결과가 없습니다"
+              body="검색어를 지우거나 출처 필터를 '전체'로 바꿔 보세요."
+            />
+          ) : totalCount === 0 ? (
+            <EmptyState
+              title="아직 수집된 정책이 없습니다"
+              body="정책은 매시간 자동으로 받아옵니다. 잠시 후 새로고침해 주세요."
+            />
+          ) : (
+            <EmptyState
+              title="이 조건에 맞는 정책이 없습니다"
+              body="분야를 더 켜거나 '전체 보기'를 켜면 걸러진 정책도 볼 수 있습니다."
+            />
+          )}
+        </section>
+
+        {lastPage > 1 && rows.length > 0 ? (
+          <Pager page={filters.page} lastPage={lastPage} sp={sp} />
+        ) : null}
+
+        <SyncFooter at={latestOf(syncedAt)} />
+      </main>
+    </>
   );
 }
 
@@ -246,6 +273,125 @@ async function fetchVerdicts(
     out[policy_id] = v;
   }
   return out;
+}
+
+/**
+ * 내 조건 카드 (§5.1)
+ *
+ * **판정 버튼은 여기 없다.** 버튼과 카드가 판정 상태를 공유해야 해서 `PolicyList` 안에 있어야
+ * 하고(ARCHITECTURE §6.1), 조건을 넣는 문은 마스트헤드 하나다. 이 카드가 하는 일은
+ * **무엇을 근거로 걸렀는지 보여주는 것**이다 — "조건을 한 번 넣어두면"을 실제 값으로 바꿔 적는다.
+ */
+function ConditionConsole({ summary }: { summary: string[] | null }) {
+  return (
+    <section className="card mx-auto mt-5 max-w-read p-4">
+      <p className="card-kicker">내 조건</p>
+
+      {summary === null ? (
+        <p className="text-compact text-muted">
+          아직 없습니다. 오른쪽 위 <strong className="text-[var(--ink)]">내 조건 입력하기</strong>로
+          생년과 사는 곳만 넣어도 목록이 좁혀집니다.
+        </p>
+      ) : summary.length === 0 ? (
+        // 행은 있는데 값이 전부 비어 있는 상태 (ARCHITECTURE §7). 판정을 눌러도 AI를 안 부른다
+        <p className="text-compact text-muted">
+          비어 있습니다. 생년이나 사는 곳을 채우면 그때부터 조건으로 걸러집니다.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {summary.map((s) => (
+            <span key={s} className="tag tag-neutral">
+              {s}
+            </span>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** 카드에 적을 조건 요약. 판정에 쓰이는 값 중 **사용자가 한눈에 알아보는 것만** 고른다. */
+function profileSummary(profile: Profile & { interests: string[] }): string[] {
+  const out: string[] = [];
+  if (profile.birth_year) out.push(`${profile.birth_year}년생`);
+
+  const region = [SIDO_NAMES[profile.region_sido ?? ""], profile.region_sigungu]
+    .filter((v): v is string => Boolean(v))
+    .join(" ");
+  if (region) out.push(region);
+
+  if (profile.interests.length > 0) out.push(`관심 ${profile.interests.length}분야`);
+  return out;
+}
+
+/**
+ * 타일 ↔ 목록 (§5.1)
+ *
+ * 상태를 URL에 둔다 — 필터와 같은 이유다(ListControls). 서버가 그리므로 첫 화면이 깜빡이지 않고,
+ * 뒤로가기와 공유가 그냥 된다. **기본값(`tile`)은 URL에 적지 않는다** — 주소가 깨끗해야
+ * `/`와 `/?view=tile`이 같은 화면이라는 게 분명해진다.
+ */
+function ViewToggle({ view, sp }: { view: View; sp: Search }) {
+  const href = (v: View) => {
+    const next = new URLSearchParams();
+    for (const [k, val] of Object.entries(sp)) {
+      const s = one(val);
+      if (s !== null && k !== "view") next.set(k, s);
+    }
+    if (v === "list") next.set("view", "list");
+    return next.toString() ? `/?${next}` : "/";
+  };
+
+  const items = [
+    { v: "tile" as const, label: "타일로 보기", icon: <TileIcon /> },
+    { v: "list" as const, label: "목록으로 보기", icon: <ListIcon /> },
+  ];
+
+  return (
+    <nav aria-label="보기 방식" className="border-divider flex items-center gap-1 rounded-pill border p-1">
+      {items.map((it) => {
+        const on = view === it.v;
+        return (
+          <Link
+            key={it.v}
+            href={href(it.v)}
+            aria-label={it.label}
+            // 링크라 `aria-pressed`를 쓸 수 없다. 지금 보고 있는 쪽을 `aria-current`가 말한다
+            aria-current={on ? "true" : undefined}
+            className={`flex size-8 items-center justify-center rounded-pill transition-colors ${
+              on
+                ? "bg-[var(--accent-ink)] text-[var(--accent-on)]"
+                : "text-muted hover:bg-[color-mix(in_srgb,var(--ink)_7%,transparent)]"
+            }`}
+          >
+            {it.icon}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+/* 아이콘 두 개. 선 굵기와 반경은 로고와 같은 값이다 — 크롬이 한 벌로 보여야 한다 */
+function TileIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <rect x="1" y="1" width="6" height="6" rx="1.5" />
+      <rect x="9" y="1" width="6" height="6" rx="1.5" />
+      <rect x="1" y="9" width="6" height="6" rx="1.5" />
+      <rect x="9" y="9" width="6" height="6" rx="1.5" />
+    </svg>
+  );
+}
+
+function ListIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <rect x="1" y="2" width="14" height="3.2" rx="1.5" />
+      <rect x="1" y="6.9" width="14" height="3.2" rx="1.5" />
+      <rect x="1" y="11.8" width="14" height="3.2" rx="1.5" />
+    </svg>
+  );
 }
 
 /** 박스를 두르지 않고 여백으로 세운다 (원칙 1). 가운데 정렬도 하지 않는다 — 페이지는 왼쪽 정렬이다 (§4.7) */

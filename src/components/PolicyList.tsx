@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import type { PolicyListRow } from "@/lib/policies/query";
@@ -8,6 +7,7 @@ import { scoreOf, type Score } from "@/lib/verdict/score";
 import type { DecidedVerdict } from "@/lib/verdict/validate";
 
 import { PolicyCard } from "./PolicyCard";
+import { PolicyTile } from "./PolicyTile";
 
 /**
  * 판정 버튼 + 목록 (ARCHITECTURE §6.1)
@@ -34,11 +34,14 @@ export function PolicyList({
   initialVerdicts,
   hasSession,
   hasProfile,
+  view,
 }: {
   rows: PolicyListRow[];
   initialVerdicts: VerdictMap;
   hasSession: boolean;
   hasProfile: boolean;
+  /** 타일 그리드 · 목록 (§5.1). URL이 들고 있으므로 이 컴포넌트는 상태를 갖지 않는다 */
+  view: "tile" | "list";
 }) {
   const [verdicts, setVerdicts] = useState<VerdictMap>(initialVerdicts);
   const [judging, setJudging] = useState(false);
@@ -120,10 +123,12 @@ export function PolicyList({
             {judging ? "판정 중…" : `이 페이지 ${rows.length}건 판정하기`}
           </button>
         ) : (
-          // 프로필이 없으면 판정 버튼 대신 안내 (F-15)
-          <Link href="/profile" className="btn btn-primary">
-            내 조건 입력하고 판정받기
-          </Link>
+          // 프로필이 없으면 판정 버튼 대신 안내 (F-15). **버튼이 아니라 글이다** —
+          // 조건 입력으로 가는 문은 마스트헤드의 채움 버튼 하나뿐이어야 한다 (§5.1).
+          <p className="text-small text-muted">
+            오른쪽 위 <strong className="text-[var(--ink)]">내 조건 입력하기</strong>로 조건을 넣으면
+            이 목록을 판정할 수 있습니다.
+          </p>
         )}
 
         {!hasSession ? (
@@ -136,15 +141,23 @@ export function PolicyList({
       </div>
 
       {/* 구분선이 아니라 여백으로 나눈다 (원칙 1) */}
-      <div className="mt-4 grid gap-3">
-        {ordered.map((p) => (
-          <PolicyCard
-            key={p.id}
-            policy={p}
-            verdict={verdicts[p.id] ?? null}
-            judging={judging && !verdicts[p.id]}
-          />
-        ))}
+      <div
+        className={
+          view === "tile" ? "mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" : "mt-4 grid gap-3"
+        }
+      >
+        {ordered.map((p) => {
+          const props = {
+            policy: p,
+            verdict: verdicts[p.id] ?? null,
+            judging: judging && !verdicts[p.id],
+          };
+          return view === "tile" ? (
+            <PolicyTile key={p.id} {...props} />
+          ) : (
+            <PolicyCard key={p.id} {...props} />
+          );
+        })}
       </div>
     </>
   );

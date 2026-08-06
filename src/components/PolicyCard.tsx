@@ -102,7 +102,7 @@ function VerdictDetail({ verdict }: { verdict: DecidedVerdict }) {
         카드가 이미 surface라, 안에 한 겹 더 들어가는 이 블록은 종이색으로 되돌려 구분한다.
       */}
       {checks.length > 0 ? (
-        <div className="rounded-md bg-[var(--paper)] p-2">
+        <div className="rounded-sm bg-[var(--paper)] p-2">
           <p className="text-micro font-semibold">확인이 필요한 것</p>
           <ul className="mt-1 flex flex-col gap-0.5">
             {checks.map((c) => (

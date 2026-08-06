@@ -28,7 +28,7 @@ export function QuoteHighlight({
         노란 형광펜이 아니라 시안 틴트다 (DESIGN.md §4.3). 원본 시스템의 공정 노랑은
         인쇄 처리 전용이라 본문에 쓸 수 없고, 목업도 인용을 이 틴트로 칠한다.
       */}
-      <mark className="rounded-sm bg-[var(--tint-accent-bg)] px-0.5 text-[var(--tint-accent-fg)]">
+      <mark className="rounded-xs bg-[var(--tint-accent-bg)] px-0.5 text-[var(--tint-accent-fg)]">
         {text.slice(range.start, range.end)}
       </mark>
       {text.slice(range.end)}
