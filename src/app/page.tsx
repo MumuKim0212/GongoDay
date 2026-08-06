@@ -206,7 +206,7 @@ async function fetchVerdicts(
 
   const { data } = await supabase
     .from("verdicts")
-    .select("policy_id, verdict, decided_by, reason, quote, quote_verified, blockers")
+    .select("policy_id, verdict, decided_by, reason, quote, quote_verified, blockers, checks")
     .eq("user_id", userId)
     .eq("profile_signature", signature)
     .in("policy_id", policyIds);
