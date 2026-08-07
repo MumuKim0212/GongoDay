@@ -14,13 +14,11 @@ export function ListControls({
   categories,
   q,
   source,
-  showAll,
   scrapsOnly,
 }: {
   categories: Category[];
   q: string | null;
   source: string | null;
-  showAll: boolean;
   scrapsOnly: boolean;
 }) {
   const router = useRouter();
@@ -94,15 +92,6 @@ export function ListControls({
           <option value="youth">온통청년</option>
           <option value="gov24">정부24</option>
         </select>
-
-        <label className="text-compact text-muted flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={showAll}
-            onChange={(e) => push((p) => (e.target.checked ? p.set("all", "1") : p.delete("all")))}
-          />
-          전체 보기
-        </label>
 
         <label className="text-compact text-muted flex items-center gap-1.5">
           <input

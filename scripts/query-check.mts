@@ -43,9 +43,6 @@ check(noSigungu.filteredCount === 617, "1차 필터 (시군구 미선택) → 61
 const noProfile = await fetchPolicies(db, defaultFilters());
 check(noProfile.filteredCount > 617, "프로필 없으면 나이·지역 조건이 안 걸린다", `${noProfile.filteredCount}건`);
 
-const showAll = await fetchPolicies(db, { ...base, showAll: true });
-check(showAll.filteredCount === 13662, "전체 보기 → 13,662건", String(showAll.filteredCount));
-
 // 페이지네이션
 check(withSigungu.rows.length === PAGE_SIZE, `1페이지가 ${PAGE_SIZE}건`, `${withSigungu.rows.length}건`);
 const page2 = await fetchPolicies(db, { ...base, page: 2 });
@@ -61,14 +58,15 @@ check(
 );
 
 // 검색 · 출처
-const search = await fetchPolicies(db, { ...defaultFilters(), q: "청년", showAll: true });
+const search = await fetchPolicies(db, { ...defaultFilters(), q: "청년" });
 check(
   search.rows.every((r) => r.title.includes("청년")),
   "검색어가 제목에 실제로 들어 있다",
   `${search.filteredCount}건`,
 );
-const onlyYouth = await fetchPolicies(db, { ...defaultFilters(), source: "youth", showAll: true });
-check(onlyYouth.filteredCount === 2698, "출처 필터 youth → 2,698건", String(onlyYouth.filteredCount));
+// 출처는 분야·나이·지역과 다른 층위라 `totalCount`가 "출처만 건 건수"다 (`applyFilters`의 `"total"`)
+const onlyYouth = await fetchPolicies(db, { ...defaultFilters(), source: "youth" });
+check(onlyYouth.totalCount === 2698, "출처 필터 youth → 2,698건", String(onlyYouth.totalCount));
 
 // 사용자구분이 실제로 걸리는가 (§5.0.3)
 const legalOnly = noSigungu.rows.filter(

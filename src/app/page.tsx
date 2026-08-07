@@ -55,7 +55,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
     categories: parseCategories(one(sp.cat), profile?.interests),
     q: one(sp.q),
     source: one(sp.source) === "youth" ? "youth" : one(sp.source) === "gov24" ? "gov24" : null,
-    showAll: one(sp.all) === "1",
     page: Math.max(1, Number.parseInt(one(sp.page) ?? "1", 10) || 1),
   };
 
@@ -102,22 +101,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
           </h1>
 
           <p className="text-sub text-muted mt-4 font-normal text-balance">
-            조건을 한 번 넣어두면 온통청년·정부24의 지원정책을 한 곳에서 걸러 보여줍니다.
+            조건을 한 번 넣어두면 지원정책을 한 곳에서 걸러 보여줍니다.
           </p>
         </div>
 
         {/* ⚠️ `main`의 직계 `p`로 남아야 한다 — release-check의 `countText()`가 이 선택자로 읽는다 */}
         <p className="text-small text-muted mt-4 text-center">
           <span className="tag tag-accent tabular-nums">
-            {filters.showAll ? (
-              <>전체 {totalCount.toLocaleString()}건</>
-            ) : (
-              <>
-                {/* "내 조건에 맞는"이라고 쓰면 AI 판정을 마친 것처럼 읽힌다 (§6.1) */}
-                코드 조건 통과 <strong>{filteredCount.toLocaleString()}</strong>건 / 전체{" "}
-                {totalCount.toLocaleString()}건
-              </>
-            )}
+            {/* "내 조건에 맞는"이라고 쓰면 AI 판정을 마친 것처럼 읽힌다 (§6.1) */}
+            코드 조건 통과 <strong>{filteredCount.toLocaleString()}</strong>건 / 전체{" "}
+            {totalCount.toLocaleString()}건
           </span>
           {!profile ? <span className="ml-2">조건을 넣으면 더 좁혀집니다</span> : null}
         </p>
@@ -135,7 +128,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
             categories={filters.categories}
             q={filters.q}
             source={filters.source}
-            showAll={filters.showAll}
             scrapsOnly={scrapsOnly}
           />
         </section>
@@ -177,7 +169,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
           ) : (
             <EmptyState
               title="이 조건에 맞는 정책이 없습니다"
-              body="분야를 더 켜거나 '전체 보기'를 켜면 걸러진 정책도 볼 수 있습니다."
+              body="분야를 더 켜면 걸러진 정책도 볼 수 있습니다."
             />
           )}
         </section>

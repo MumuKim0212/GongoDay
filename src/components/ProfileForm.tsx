@@ -16,6 +16,13 @@ import {
 } from "@/lib/profile/schema";
 import { CATEGORIES, CATEGORY_LABELS, type Category } from "@/lib/sources/category";
 
+/**
+ * 고를 수 있는 생년. 올해부터 거꾸로 내려가고 범위는 서버 검증과 같다(`saveProfile`) —
+ * 목록에 없는 값은 애초에 고를 수 없어야 두 쪽이 어긋나지 않는다.
+ */
+const THIS_YEAR = new Date().getFullYear();
+const BIRTH_YEARS = Array.from({ length: THIS_YEAR - BIRTH_YEAR_MIN + 1 }, (_, i) => THIS_YEAR - i);
+
 /** `profiles` 한 행 중 폼이 그리는 칸 (§2.2). 프로필이 없으면 `null`이 온다. */
 export type ProfileValues = {
   birth_year: number | null;
@@ -49,17 +56,24 @@ export function ProfileForm({ initial }: { initial: ProfileValues | null }) {
   return (
     <form action={formAction} className="mt-6 space-y-7">
       <Section legend="생년">
-        {/* `--spacing` 확대로 160px까지 벌어졌던 것을 되돌린다 — 네 자리 연도에 그만한 폭은 없다 (DESIGN.md §5.3) */}
-        <input
-          type="number"
+        {/* **목록에서 고른다.** 숫자 입력의 화살표는 한 번에 1년씩 움직여 28년생을 찾는 데 쓸 수 없고,
+            직접 치면 오타가 그대로 조건이 된다 — 목록은 있는 값만 고르게 한다 (DESIGN.md §5.3).
+            내림차순이라 여는 순간 올해가 맨 위다. 다른 select와 같이 '선택 안 함'이 첫 칸인
+            이유는 **생년도 선택 사항이기 때문이다** — 올해가 기본으로 잡혀 있으면 손대지 않은
+            사용자가 0살로 저장되어 나이 조건이 목록을 통째로 비운다. */}
+        <select
           name="birth_year"
           defaultValue={initial?.birth_year ?? ""}
-          min={BIRTH_YEAR_MIN}
-          max={new Date().getFullYear()}
-          placeholder="예: 1998"
           aria-label="생년"
-          className="input w-24"
-        />
+          className="input w-auto"
+        >
+          <option value="">선택 안 함</option>
+          {BIRTH_YEARS.map((y) => (
+            <option key={y} value={y}>
+              {y}년
+            </option>
+          ))}
+        </select>
         <Hint>연도만 받습니다. 나이 조건은 앞뒤로 1년 여유를 두고 봅니다.</Hint>
       </Section>
 

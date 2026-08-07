@@ -56,12 +56,10 @@ export type ListFilters = {
   /** 정책명 검색어 */
   q: string | null;
   source: "youth" | "gov24" | null;
-  /** 켜면 1차 필터를 해제하고 전체를 보여준다 (F-01b) */
-  showAll: boolean;
   /**
    * 스크랩한 정책 id. `null`이면 스크랩 필터를 걸지 않는다 (F-20).
    *
-   * 사용자가 직접 건 필터라 **`showAll`에서도 유지한다** — 검색·출처와 같은 층위다.
+   * 사용자가 직접 건 필터라 **`"total"` 집계에도 들어간다** — 검색·출처와 같은 층위다.
    * RLS가 본인 행만 주므로 여기 담긴 id는 이미 본인 것뿐이다.
    */
   scrapPolicyIds: string[] | null;
@@ -76,7 +74,6 @@ export function defaultFilters(): ListFilters {
     categories: DEFAULT_CATEGORIES,
     q: null,
     source: null,
-    showAll: false,
     scrapPolicyIds: null,
     page: 1,
   };
@@ -85,23 +82,25 @@ export function defaultFilters(): ListFilters {
 /**
  * 1차 필터를 건 쿼리를 만든다.
  *
- * `showAll`이면 **분야·나이·지역·사용자구분을 전부 해제**한다 — 걸러진 정책도 볼 길을 남긴다 (PRD §7.5).
- * 검색어와 출처 필터는 사용자가 직접 건 것이라 `showAll`에서도 유지한다.
+ * **`scope`는 사용자 설정이 아니라 두 집계의 구분이다.** `"total"`은 화면의 "전체 M건"을 세는
+ * 쿼리라 **분야·나이·지역·사용자구분을 걸지 않는다**. 검색어·출처·스크랩은 사용자가 직접 건
+ * 것이라 양쪽에 똑같이 들어간다 — 그래야 "검색 결과 중 몇 건이 조건을 통과했는가"로 읽힌다.
  */
 function applyFilters(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PostgREST 빌더는 체이닝마다 타입이 바뀐다
   query: any,
   f: ListFilters,
+  scope: "filtered" | "total",
 ) {
   if (f.q) {
     // %와 _는 PostgREST ilike의 와일드카드다. 사용자가 친 문자 그대로 찾도록 이스케이프한다.
     query = query.ilike("title", `%${f.q.replace(/[%_\\]/g, "\\$&")}%`);
   }
   if (f.source) query = query.eq("source", f.source);
-  // 스크랩도 사용자가 직접 건 필터다 — '전체 보기'로 풀지 않는다
+  // 스크랩도 사용자가 직접 건 필터다 — 전체 집계에서도 풀지 않는다
   if (f.scrapPolicyIds !== null) query = query.in("id", f.scrapPolicyIds);
 
-  if (f.showAll) return query;
+  if (scope === "total") return query;
 
   if (f.categories.length > 0) query = query.overlaps("categories", f.categories);
 
@@ -155,11 +154,12 @@ export async function fetchPolicies(
 
   // 분야를 전부 끄면 0건이다. 필터를 껐으니 전체를 보여준다고 하면
   // **끌수록 결과가 늘어나** 분야 필터가 목록을 좁히는 장치라는 것과 어긋난다.
-  // 전체를 보려는 사용자를 위해서는 "전체 보기" 토글이 따로 있다 (F-01b).
-  if (!f.showAll && f.categories.length === 0) {
+  // 되돌리는 길은 분야를 다시 켜는 것 하나다 — 빈 상태 안내가 그렇게 말한다.
+  if (f.categories.length === 0) {
     const total = await applyFilters(
       supabase.from("policies").select("id", { count: "exact", head: true }),
-      { ...f, showAll: true },
+      f,
+      "total",
     );
     const message: string | null = total.error?.message ?? null;
     if (message) log.error("policies.query_failed", { where: "total", message });
@@ -167,14 +167,15 @@ export async function fetchPolicies(
   }
 
   const [filtered, total] = await Promise.all([
-    applyFilters(supabase.from("policies").select(LIST_COLUMNS, { count: "exact" }), f)
+    applyFilters(supabase.from("policies").select(LIST_COLUMNS, { count: "exact" }), f, "filtered")
       .order("source_registered_at", { ascending: false, nullsFirst: false })
       .order("id", { ascending: true }) // 정렬 동률에서 페이지 간 중복·누락을 막는다
       .range(from, from + PAGE_SIZE - 1),
-    applyFilters(supabase.from("policies").select("id", { count: "exact", head: true }), {
-      ...f,
-      showAll: true,
-    }),
+    applyFilters(
+      supabase.from("policies").select("id", { count: "exact", head: true }),
+      f,
+      "total",
+    ),
   ]);
 
   // 화면은 이 실패를 "잠시 후 새로고침해 주세요"로만 말한다 (§7 — 어떤 실패도 화면을 비우지 않는다).

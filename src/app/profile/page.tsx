@@ -1,5 +1,4 @@
-import Link from "next/link";
-
+import { BackToList } from "@/components/BackToList";
 import { ProfileForm, type ProfileValues } from "@/components/ProfileForm";
 import { createClient } from "@/lib/supabase/server";
 
@@ -22,9 +21,9 @@ export default async function ProfilePage() {
 
   return (
     <main className="max-w-read mx-auto w-full px-4 py-8">
-      <Link href="/" className="btn btn-ghost px-0">
-        ← 목록으로
-      </Link>
+      {/* 상세와 같은 되돌아가기다 — 조건을 저장했으면 `saveProfile`의 `revalidatePath`가
+          캐시를 버려 새로 받고, 안 고쳤으면 떠나온 목록이 그대로 돌아온다 */}
+      <BackToList className="btn btn-ghost px-0">← 목록으로</BackToList>
 
       <header className="mt-3">
         <h1 className="text-title">내 조건</h1>

@@ -132,8 +132,10 @@ check(
   `${rejected.length}건`,
 );
 
-// 두 출처가 한 목록에 섞이는가 (PRD §2) — 첫 페이지가 한쪽으로 쏠릴 수 있어 전체 보기로 확인
-await page.goto(`${base}/?all=1`, { waitUntil: "networkidle" });
+// 두 출처가 한 목록에 섞이는가 (PRD §2) — 첫 페이지가 한쪽으로 쏠릴 수 있어 분야를 전부 켜고 본다
+await page.goto(`${base}/?cat=job,housing,edu,welfare,rights,health,birth,farm`, {
+  waitUntil: "networkidle",
+});
 const sources = await page.locator("article").evaluateAll((els) =>
   els.map((el) => (el.textContent?.includes("온통청년") ? "youth" : "gov24")),
 );
