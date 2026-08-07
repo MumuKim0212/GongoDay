@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { AdminTabs } from "@/components/AdminTabs";
 import { SyncButton } from "@/components/SyncButton";
 import { isAdminAllowed, isAdminLocked } from "@/lib/admin/access";
 import { SOURCE_LABELS, envStatus, fetchAdminStats, type Num, type SyncStatus } from "@/lib/admin/stats";
@@ -64,154 +65,191 @@ export default async function AdminPage({ params }: PageProps<"/admin/[[...slug]
         )}
       </p>
 
-      {/* ── 수집 · 서버 ────────────────────────────── */}
-      <Section title="수집 · 서버">
-        {stats ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {stats.sync.map((s) => (
-              <SyncCard key={s.source} status={s} />
-            ))}
-          </div>
-        ) : (
-          <Note>
-            <code>SUPABASE_SERVICE_ROLE_KEY</code>가 없어 집계를 읽을 수 없습니다.
-          </Note>
-        )}
+      <AdminTabs
+        tabs={[
+          {
+            key: "sync",
+            label: "수집 · 서버",
+            content: (
+              <Section title="수집 · 서버">
+                {stats ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {stats.sync.map((s) => (
+                      <SyncCard key={s.source} status={s} />
+                    ))}
+                  </div>
+                ) : (
+                  <Note>
+                    <code>SUPABASE_SERVICE_ROLE_KEY</code>가 없어 집계를 읽을 수 없습니다.
+                  </Note>
+                )}
 
-        {/* 버튼이 자기가 바꾸는 상태(위의 '이어받을 페이지') 바로 옆에 있다 */}
-        <div className="mt-3">
-          <SyncButton slug={slug} />
-          <p className="mt-1 text-xs text-gray-500">
-            평소 수집은 <strong>매시간 GitHub Actions</strong>가 돌립니다(
-            <code>.github/workflows/sync.yml</code>). 한 번에 10페이지씩이라 온통청년은 3시간, 정부24는 11시간에 한
-            바퀴입니다 — 이 버튼은 <strong>지금 당장</strong> 한 바퀴 더 돌릴 때만 쓰고, 그냥 두면 크론이 마저
-            받아갑니다.
-          </p>
-        </div>
+                {/* 버튼이 자기가 바꾸는 상태(위의 '이어받을 페이지') 바로 옆에 있다 */}
+                <div className="mt-3">
+                  <SyncButton slug={slug} />
+                  <p className="mt-1 text-xs text-gray-500">
+                    평소 수집은 <strong>매시간 GitHub Actions</strong>가 돌립니다(
+                    <code>.github/workflows/sync.yml</code>). 한 번에 10페이지씩이라 온통청년은 3시간, 정부24는
+                    11시간에 한 바퀴입니다 — 이 버튼은 <strong>지금 당장</strong> 한 바퀴 더 돌릴 때만 쓰고, 그냥
+                    두면 크론이 마저 받아갑니다.
+                  </p>
+                </div>
 
-        <h3 className="mt-4 text-sm font-medium">환경 변수</h3>
-        <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
-          {env.map((e) => (
-            <li key={e.key} className="flex items-center gap-2">
-              <span className={e.set ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-                {e.set ? "설정됨" : "없음"}
-              </span>
-              <code className="text-xs break-all">{e.key}</code>
-              {e.server ? <span className="text-xs text-gray-400">서버 전용</span> : null}
-            </li>
-          ))}
-        </ul>
-        <p className="mt-1 text-xs text-gray-500">값은 표시하지 않습니다. 설정 여부만 봅니다.</p>
-      </Section>
+                <h3 className="mt-4 text-sm font-medium">환경 변수</h3>
+                <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
+                  {env.map((e) => (
+                    <li key={e.key} className="flex items-center gap-2">
+                      <span
+                        className={e.set ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
+                      >
+                        {e.set ? "설정됨" : "없음"}
+                      </span>
+                      <code className="text-xs break-all">{e.key}</code>
+                      {e.server ? <span className="text-xs text-gray-400">서버 전용</span> : null}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs text-gray-500">값은 표시하지 않습니다. 설정 여부만 봅니다.</p>
+              </Section>
+            ),
+          },
+          {
+            key: "policies",
+            label: "공고",
+            content: (
+              <Section title="공고">
+                {stats ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <Stat label="전체" value={fmt(stats.policies.total)} />
+                      <Stat label="온통청년" value={fmt(stats.policies.youth)} />
+                      <Stat label="정부24" value={fmt(stats.policies.gov24)} />
+                      <Stat label="최신 등록일" value={day(stats.policies.latestRegisteredAt)} />
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500">
+                      목록 정렬 기준은 <code>source_registered_at</code>입니다 — <code>fetched_at</code>은 갱신마다
+                      바뀝니다.
+                    </p>
+                  </>
+                ) : (
+                  <Note>집계를 읽을 수 없습니다.</Note>
+                )}
+              </Section>
+            ),
+          },
+          ...(stats
+            ? [
+                {
+                  key: "categories",
+                  label: "분류",
+                  content: (
+                    <Section title="분류">
+                      <h3 className="text-sm font-medium">분야</h3>
+                      <Bars
+                        rows={stats.categories.map((c) => ({ ...c, hint: pct(c.count, stats.policies.total) }))}
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        한 정책이 여러 분야에 들어가므로 합이 전체보다 큽니다. <code>기타</code>가 커지면 분야
+                        매핑에 빠진 값이 생긴 것입니다.
+                      </p>
 
-      {/* ── 공고 ──────────────────────────────────── */}
-      <Section title="공고">
-        {stats ? (
-          <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Stat label="전체" value={fmt(stats.policies.total)} />
-              <Stat label="온통청년" value={fmt(stats.policies.youth)} />
-              <Stat label="정부24" value={fmt(stats.policies.gov24)} />
-              <Stat label="최신 등록일" value={day(stats.policies.latestRegisteredAt)} />
-            </div>
-            <p className="mt-2 text-xs text-gray-500">
-              목록 정렬 기준은 <code>source_registered_at</code>입니다 — <code>fetched_at</code>은 갱신마다 바뀝니다.
-            </p>
-          </>
-        ) : (
-          <Note>집계를 읽을 수 없습니다.</Note>
-        )}
-      </Section>
+                      <h3 className="mt-5 text-sm font-medium">지역</h3>
+                      <Bars rows={stats.regions.map((r) => ({ ...r, hint: pct(r.count, stats.policies.total) }))} />
+                      <p className="mt-1 text-xs text-gray-500">
+                        &lsquo;전국&rsquo;은 두 종류입니다. 중앙행정기관은 실제로 전국이고,{" "}
+                        <strong>지역 판별 실패</strong>는 기관명에서 지역을 못 찾아 전국으로 떨어진 건입니다 —
+                        숨기지 않으려고 통과시킨 것이라 수도권 목록에 타 지역이 섞이는 원인입니다.
+                      </p>
 
-      {/* ── 분류 ──────────────────────────────────── */}
-      {stats ? (
-        <Section title="분류">
-          <h3 className="text-sm font-medium">분야</h3>
-          <Bars rows={stats.categories.map((c) => ({ ...c, hint: pct(c.count, stats.policies.total) }))} />
-          <p className="mt-1 text-xs text-gray-500">
-            한 정책이 여러 분야에 들어가므로 합이 전체보다 큽니다. <code>기타</code>가 커지면 분야 매핑에 빠진 값이
-            생긴 것입니다.
-          </p>
+                      <h3 className="mt-5 text-sm font-medium">판정 입력 텍스트 채움률</h3>
+                      <Bars
+                        rows={stats.fill.map((f) => ({
+                          label: f.label,
+                          count: f.count,
+                          hint: pct(f.count, f.base === "youth" ? stats.policies.youth : stats.policies.total),
+                        }))}
+                      />
+                    </Section>
+                  ),
+                },
+                {
+                  key: "verdicts",
+                  label: "AI 판정",
+                  content: (
+                    <Section title="AI 판정">
+                      {stats.verdicts.total === 0 ? (
+                        <Note>저장된 판정이 없습니다. 판정 API(작업 6)가 붙으면 여기부터 채워집니다.</Note>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                            <Stat label="판정 건수" value={fmt(stats.verdicts.total)} />
+                            <Stat label="AI가 답한 건" value={fmt(stats.verdicts.ai)} />
+                            {/* 분모는 AI 판정 수다. quote가 남은 건수로 나누면 늘 100%가 나온다 (stats.ts 주석) */}
+                            <Stat
+                              label="인용 검증 통과"
+                              value={fmt(stats.verdicts.quoteVerified)}
+                              hint={pct(stats.verdicts.quoteVerified, stats.verdicts.ai) ?? undefined}
+                            />
+                            <Stat label="마지막 판정" value={time(stats.verdicts.latestAt)} />
+                          </div>
+                          <p className="mt-1 text-xs text-gray-500">
+                            인용 검증을 통과하지 못한 AI 판정{" "}
+                            <strong>{fmt(diff(stats.verdicts.ai, stats.verdicts.quoteVerified))}건</strong>은{" "}
+                            <code>애매</code>로 강등되고, 상세 화면에 &ldquo;근거를 원문에서 찾지 못했습니다&rdquo;로
+                            표시됩니다. 이 수가 늘면 프롬프트나 모델을 다시 봐야 합니다. 코드 게이트 판정에는 인용이
+                            없습니다.
+                          </p>
 
-          <h3 className="mt-5 text-sm font-medium">지역</h3>
-          <Bars rows={stats.regions.map((r) => ({ ...r, hint: pct(r.count, stats.policies.total) }))} />
-          <p className="mt-1 text-xs text-gray-500">
-            &lsquo;전국&rsquo;은 두 종류입니다. 중앙행정기관은 실제로 전국이고,{" "}
-            <strong>지역 판별 실패</strong>는 기관명에서 지역을 못 찾아 전국으로 떨어진 건입니다 — 숨기지 않으려고
-            통과시킨 것이라 수도권 목록에 타 지역이 섞이는 원인입니다.
-          </p>
+                          <h3 className="mt-5 text-sm font-medium">점수 분포</h3>
+                          <Bars
+                            rows={stats.verdicts.scores.map((s) => ({
+                              ...s,
+                              hint: pct(s.count, stats.verdicts.scoreSample),
+                            }))}
+                          />
+                          <p className="mt-1 text-xs text-gray-500">
+                            점수는 저장하지 않고 <code>checks</code> 길이에서 유도합니다(§5.6). 그래서 집계
+                            쿼리로 세지 못하고 판정 {fmt(stats.verdicts.scoreSample)}건을 받아서 셌습니다
+                            {(stats.verdicts.scoreSample ?? 0) < (stats.verdicts.total ?? 0)
+                              ? " — 전체보다 적으면 표본 상한에서 잘린 것입니다."
+                              : " (전수)."}{" "}
+                            프롬프트를 바꾸기 전에 저장된 판정은 <code>checks</code>가 비어 2점으로 잡힙니다.
+                          </p>
 
-          <h3 className="mt-5 text-sm font-medium">판정 입력 텍스트 채움률</h3>
-          <Bars
-            rows={stats.fill.map((f) => ({
-              label: f.label,
-              count: f.count,
-              hint: pct(f.count, f.base === "youth" ? stats.policies.youth : stats.policies.total),
-            }))}
-          />
-        </Section>
-      ) : null}
+                          <h3 className="mt-5 text-sm font-medium">결과 분포</h3>
+                          <Bars
+                            rows={stats.verdicts.byVerdict.map((v) => ({
+                              ...v,
+                              hint: pct(v.count, stats.verdicts.total),
+                            }))}
+                          />
+                          <p className="mt-1 text-xs text-gray-500">
+                            <code>아님</code>인데 <code>blockers</code>가 빈 판정{" "}
+                            <strong>{fmt(stats.verdicts.ineligibleNoBlockers)}건</strong> — 그 카드에 남는 설명은
+                            한 줄짜리 <code>reason</code>뿐입니다. 숨기지 않는 대신 왜 아닌지를 말해주기로 한
+                            약속이라(PRD §7.5) 이 수는 0에 가까워야 합니다.
+                          </p>
 
-      {/* ── AI 판정 ───────────────────────────────── */}
-      {stats ? (
-        <Section title="AI 판정">
-          {stats.verdicts.total === 0 ? (
-            <Note>저장된 판정이 없습니다. 판정 API(작업 6)가 붙으면 여기부터 채워집니다.</Note>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Stat label="판정 건수" value={fmt(stats.verdicts.total)} />
-                <Stat label="AI가 답한 건" value={fmt(stats.verdicts.ai)} />
-                {/* 분모는 AI 판정 수다. quote가 남은 건수로 나누면 늘 100%가 나온다 (stats.ts 주석) */}
-                <Stat
-                  label="인용 검증 통과"
-                  value={fmt(stats.verdicts.quoteVerified)}
-                  hint={pct(stats.verdicts.quoteVerified, stats.verdicts.ai) ?? undefined}
-                />
-                <Stat label="마지막 판정" value={time(stats.verdicts.latestAt)} />
-              </div>
-              <p className="mt-1 text-xs text-gray-500">
-                인용 검증을 통과하지 못한 AI 판정{" "}
-                <strong>{fmt(diff(stats.verdicts.ai, stats.verdicts.quoteVerified))}건</strong>은{" "}
-                <code>애매</code>로 강등되고, 상세 화면에 &ldquo;근거를 원문에서 찾지 못했습니다&rdquo;로 표시됩니다.
-                이 수가 늘면 프롬프트나 모델을 다시 봐야 합니다. 코드 게이트 판정에는 인용이 없습니다.
-              </p>
-
-              <h3 className="mt-5 text-sm font-medium">점수 분포</h3>
-              <Bars
-                rows={stats.verdicts.scores.map((s) => ({
-                  ...s,
-                  hint: pct(s.count, stats.verdicts.scoreSample),
-                }))}
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                점수는 저장하지 않고 <code>checks</code> 길이에서 유도합니다(§5.6). 그래서 집계 쿼리로 세지 못하고
-                판정 {fmt(stats.verdicts.scoreSample)}건을 받아서 셌습니다
-                {(stats.verdicts.scoreSample ?? 0) < (stats.verdicts.total ?? 0)
-                  ? " — 전체보다 적으면 표본 상한에서 잘린 것입니다."
-                  : " (전수)."}{" "}
-                프롬프트를 바꾸기 전에 저장된 판정은 <code>checks</code>가 비어 2점으로 잡힙니다.
-              </p>
-
-              <h3 className="mt-5 text-sm font-medium">결과 분포</h3>
-              <Bars rows={stats.verdicts.byVerdict.map((v) => ({ ...v, hint: pct(v.count, stats.verdicts.total) }))} />
-              <p className="mt-1 text-xs text-gray-500">
-                <code>아님</code>인데 <code>blockers</code>가 빈 판정{" "}
-                <strong>{fmt(stats.verdicts.ineligibleNoBlockers)}건</strong> — 그 카드에 남는 설명은 한 줄짜리{" "}
-                <code>reason</code>뿐입니다. 숨기지 않는 대신 왜 아닌지를 말해주기로 한 약속이라(PRD §7.5) 이 수는
-                0에 가까워야 합니다.
-              </p>
-
-              <h3 className="mt-5 text-sm font-medium">누가 판정했나</h3>
-              <Bars rows={stats.verdicts.byDecider.map((d) => ({ ...d, hint: pct(d.count, stats.verdicts.total) }))} />
-              <p className="mt-1 text-xs text-gray-500">
-                코드 게이트가 처리한 몫이 클수록 Gemini 호출이 적습니다. 호출 자체가 실패한 판정은 저장하지 않으므로
-                (다시 누르면 재시도됩니다) 여기 수치에는 잡히지 않습니다.
-              </p>
-            </>
-          )}
-        </Section>
-      ) : null}
+                          <h3 className="mt-5 text-sm font-medium">누가 판정했나</h3>
+                          <Bars
+                            rows={stats.verdicts.byDecider.map((d) => ({
+                              ...d,
+                              hint: pct(d.count, stats.verdicts.total),
+                            }))}
+                          />
+                          <p className="mt-1 text-xs text-gray-500">
+                            코드 게이트가 처리한 몫이 클수록 Gemini 호출이 적습니다. 호출 자체가 실패한 판정은
+                            저장하지 않으므로 (다시 누르면 재시도됩니다) 여기 수치에는 잡히지 않습니다.
+                          </p>
+                        </>
+                      )}
+                    </Section>
+                  ),
+                },
+              ]
+            : []),
+        ]}
+      />
     </main>
   );
 }

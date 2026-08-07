@@ -68,13 +68,10 @@ export function ProfileForm({ initial }: { initial: ProfileValues | null }) {
             이유는 **출생년도도 선택 사항이기 때문이다** — 올해가 기본으로 잡혀 있으면 손대지 않은
             사용자가 0살로 저장되어 나이 조건이 목록을 통째로 비운다.
 
-            `size`가 있어 펼쳐진 목록이 아니라 **네 줄짜리 스크롤 상자**다 — 1900년까지 100개가 넘는
-            항목이 드롭다운으로 열리면 화면을 통째로 덮는다. 브라우저가 고른 값을 보이는 데까지
-            스크롤해 주므로 저장된 연도는 열자마자 보인다. */}
+            평소엔 닫혀서 '선택 안 함'만 보이는 보통 드롭다운이다 — 눌러야 펼쳐진다. */}
         <select
           name="birth_year"
           defaultValue={initial?.birth_year ?? ""}
-          size={4}
           aria-label="출생년도"
           className="input w-auto"
         >
