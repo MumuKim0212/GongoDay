@@ -1,9 +1,11 @@
 import Image from "next/image";
 import Link from "next/link";
+import { Fragment } from "react";
 
 import { ListControls } from "@/components/ListControls";
 import { PolicyList } from "@/components/PolicyList";
 import { ViewToggle } from "@/components/ViewToggle";
+import { CODE_LABELS } from "@/lib/profile/schema";
 import { CATEGORIES, DEFAULT_CATEGORIES, type Category } from "@/lib/sources/category";
 import { SIDO_NAMES } from "@/lib/sources/region";
 import { PAGE_SIZE, defaultFilters, fetchPolicies, type ListFilters } from "@/lib/policies/query";
@@ -114,16 +116,17 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
           {!profile ? <span className="ml-2">조건을 넣으면 더 좁혀집니다</span> : null}
         </p>
 
-        <ConditionConsole summary={profile ? profileSummary(profile) : null} />
-
         {/* 둘러보기 머리줄 — 제목 옆이 보기 전환 자리다 */}
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-title">공고 둘러보기</h2>
           <ViewToggle />
         </div>
 
-        <section className="mt-3">
+        {/* 거르는 것을 한 상자에 모은다 — 분야·검색은 지금 고르는 조건이고, 내 조건은 이미
+            걸려 있는 조건이라 [상세보기] 뒤에 접어 둔다 (§5.1) */}
+        <section className="card mt-3 p-4 sm:p-5">
           <ListControls categories={filters.categories} q={filters.q} scrapsOnly={scrapsOnly} />
+          <ConditionDetails conditions={profile ? profileConditions(profile) : null} />
         </section>
 
         <section className="mt-5">
@@ -258,52 +261,93 @@ async function fetchVerdicts(
 }
 
 /**
- * 내 조건 카드 (§5.1)
+ * 내 조건 상세 (§5.1)
  *
- * **판정 버튼은 여기 없다.** 버튼과 카드가 판정 상태를 공유해야 해서 `PolicyList` 안에 있어야
- * 하고(ARCHITECTURE §6.1), 조건을 넣는 문은 마스트헤드 하나다. 이 카드가 하는 일은
- * **무엇을 근거로 걸렀는지 보여주는 것**이다 — "조건을 한 번 넣어두면"을 실제 값으로 바꿔 적는다.
+ * 전에는 히어로 아래 따로 선 카드였다. 그러면 **조건이 화면 두 곳에 나온다** — 위에는 걸러진
+ * 근거(생년·지역)가, 아래에는 지금 고르는 조건(분야·검색)이 있어 같은 말이 두 번 나오는 것으로
+ * 읽혔다. 한 상자에 모으되, 이미 걸려 있는 쪽은 접어 둔다 — 훑을 때는 방해가 없고 필요할 때만 편다.
+ *
+ * `<details>`라 자바스크립트가 없다. 열림 상태를 브라우저가 들고 있고, 스크린 리더에도 펼침
+ * 여부가 그대로 전해진다.
+ *
+ * **판정 버튼은 여기 없다.** 버튼과 목록이 판정 상태를 공유해야 해서 `PolicyList` 안에 있어야
+ * 하고(ARCHITECTURE §6.1), 조건을 넣는 문은 마스트헤드 하나다.
  */
-function ConditionConsole({ summary }: { summary: string[] | null }) {
+function ConditionDetails({ conditions }: { conditions: Condition[] | null }) {
   return (
-    <section className="card mx-auto mt-5 max-w-read p-4">
-      <p className="card-kicker">내 조건</p>
+    // 펼친 내용을 버튼 **위**에 세운다(`order`) — 그래야 [상세보기]가 열든 닫든 상자의 우측하단이다.
+    // ⚠️ `details`에 `display`를 주면 브라우저가 닫힌 내용을 감추지 않는다(실측: 닫아도 그대로 보였다).
+    // 그래서 감추는 일을 `hidden group-open:block`이 대신 한다 — 접힌 내용은 화면에서도 낭독에서도 없다.
+    <details className="group flex flex-col">
+      <summary className="btn btn-ghost order-2 list-none self-end [&::-webkit-details-marker]:hidden">
+        상세보기
+        <span aria-hidden className="transition-transform group-open:rotate-180">
+          ▾
+        </span>
+      </summary>
 
-      {summary === null ? (
-        <p className="text-compact text-muted">
-          아직 없습니다. 오른쪽 위 <strong className="text-[var(--ink)]">내 조건 입력하기</strong>로
-          생년과 사는 곳만 넣어도 목록이 좁혀집니다.
-        </p>
-      ) : summary.length === 0 ? (
-        // 행은 있는데 값이 전부 비어 있는 상태 (ARCHITECTURE §7). 판정을 눌러도 AI를 안 부른다
-        <p className="text-compact text-muted">
-          비어 있습니다. 생년이나 사는 곳을 채우면 그때부터 조건으로 걸러집니다.
-        </p>
-      ) : (
-        <div className="flex flex-wrap gap-1.5">
-          {summary.map((s) => (
-            <span key={s} className="tag tag-neutral">
-              {s}
-            </span>
-          ))}
-        </div>
-      )}
-    </section>
+      <div className="order-1 hidden pb-2 group-open:block">
+        <p className="card-kicker">내 조건</p>
+
+        {conditions === null ? (
+          <p className="text-compact text-muted mt-2">
+            아직 없습니다. 오른쪽 위 <strong className="text-[var(--ink)]">내 조건 입력하기</strong>
+            로 생년과 사는 곳만 넣어도 목록이 좁혀집니다.
+          </p>
+        ) : conditions.length === 0 ? (
+          // 행은 있는데 값이 전부 비어 있는 상태 (ARCHITECTURE §7). 판정을 눌러도 AI를 안 부른다
+          <p className="text-compact text-muted mt-2">
+            비어 있습니다. 생년이나 사는 곳을 채우면 그때부터 조건으로 걸러집니다.
+          </p>
+        ) : (
+          <dl className="mt-2 grid gap-x-4 gap-y-2 sm:grid-cols-[auto_1fr]">
+            {conditions.map((c) => (
+              <Fragment key={c.label}>
+                <dt className="text-small text-muted">{c.label}</dt>
+                <dd className="flex flex-wrap gap-1.5">
+                  {c.values.map((v) => (
+                    <span key={v} className="tag tag-neutral">
+                      {v}
+                    </span>
+                  ))}
+                </dd>
+              </Fragment>
+            ))}
+          </dl>
+        )}
+      </div>
+    </details>
   );
 }
 
-/** 카드에 적을 조건 요약. 판정에 쓰이는 값 중 **사용자가 한눈에 알아보는 것만** 고른다. */
-function profileSummary(profile: Profile & { interests: string[] }): string[] {
-  const out: string[] = [];
-  if (profile.birth_year) out.push(`${profile.birth_year}년생`);
+type Condition = { label: string; values: string[] };
+
+/**
+ * 펼쳤을 때 적을 조건. **판정에 실제로 쓰이는 값만** 적는다 — 여기 없는 값은 걸러내는 데도 쓰이지
+ * 않는다(`SIGNATURE_COLUMNS`와 같은 목록이다).
+ *
+ * **관심분야는 넣지 않는다.** 같은 상자 위쪽의 분야 칩이 이미 그 값이고, 조건이 두 곳에 나오는
+ * 것이 이 상자를 만든 이유다.
+ *
+ * 라벨을 모르는 코드는 통째로 뺀다 — 원본 코드(`JA0326`)를 노출하면 읽을 수 없는 줄이 된다.
+ */
+function profileConditions(profile: Profile): Condition[] {
+  const labels = (codes: (string | null)[]) =>
+    codes.map((c) => (c === null ? undefined : CODE_LABELS[c])).filter((v) => v !== undefined);
 
   const region = [SIDO_NAMES[profile.region_sido ?? ""], profile.region_sigungu]
     .filter((v): v is string => Boolean(v))
     .join(" ");
-  if (region) out.push(region);
 
-  if (profile.interests.length > 0) out.push(`관심 ${profile.interests.length}분야`);
-  return out;
+  return [
+    { label: "생년", values: profile.birth_year ? [`${profile.birth_year}년생`] : [] },
+    { label: "사는 곳", values: region ? [region] : [] },
+    { label: "성별", values: labels([profile.gender]) },
+    { label: "소득", values: labels([profile.income_bracket]) },
+    { label: "개인상황", values: labels(profile.situations) },
+    { label: "가구상황", values: labels(profile.household) },
+    { label: "사업자", values: labels([profile.business_status]) },
+  ].filter((c) => c.values.length > 0);
 }
 
 /** 박스를 두르지 않고 여백으로 세운다 (원칙 1). 가운데 정렬도 하지 않는다 — 페이지는 왼쪽 정렬이다 (§4.7) */
