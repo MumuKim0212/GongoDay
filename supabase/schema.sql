@@ -82,12 +82,17 @@ create table if not exists profiles (
 
 -- ─────────────────────────────────────────────────────────────
 -- verdicts — AI 판정 결과 (캐시 겸용)  §2.3
--- profile_signature가 캐시 키다. 프로필이 바뀌면 서명이 바뀌어 자동 재판정된다 §5.5
+-- (policy_id, profile_signature)가 캐시 키다. 프로필이 바뀌면 서명이 바뀌어 자동 재판정된다 §5.5
+-- **사용자별이 아니다.** 판정은 (정책 원문, 서명, 프롬프트)에만 의존하고 temperature 0이라,
+-- 같은 조건이면 누가 불렀든 같은 답이다. 익명 세션이라 user_id는 사람이 아니라 브라우저 한 벌이고,
+-- 키에 넣으면 같은 사람이 기기를 바꿀 때마다 캐시를 통째로 잃는다 §5.5
 -- ─────────────────────────────────────────────────────────────
 create table if not exists verdicts (
   id                uuid primary key default gen_random_uuid(),
   policy_id         uuid not null references policies (id) on delete cascade,
-  user_id           uuid not null references auth.users (id) on delete cascade,
+  -- 처음 이 판정을 부른 사람. **캐시 키가 아니다** — 로그인 기능이 붙을 때를 위해 남긴다.
+  -- 계정이 지워져도 남들이 쓰는 캐시는 살아야 하므로 cascade가 아니라 set null이다.
+  requested_by      uuid references auth.users (id) on delete set null,
   profile_signature text not null,
   verdict           text not null,   -- 'eligible' | 'unclear' | 'ineligible'
   decided_by        text not null,   -- 'code' | 'ai'  (F-11b)
@@ -99,11 +104,12 @@ create table if not exists verdicts (
   checks            text[] not null default '{}',
   created_at        timestamptz not null default now(),
 
-  unique (policy_id, user_id, profile_signature)
+  unique (policy_id, profile_signature)
 );
 
-create index if not exists verdicts_user_signature_idx
-  on verdicts (user_id, profile_signature);
+-- 조회는 (서명 → 정책 목록) 순서다
+create index if not exists verdicts_signature_policy_idx
+  on verdicts (profile_signature, policy_id);
 
 -- ─────────────────────────────────────────────────────────────
 -- scraps / sync_runs  §2.4
@@ -154,9 +160,10 @@ drop policy if exists profiles_own on profiles;
 create policy profiles_own on profiles
   for all to authenticated using (auth.uid() = id) with check (auth.uid() = id);
 
+-- verdicts는 공유 캐시라 '본인 행만'이 성립하지 않는다. **정책을 아예 만들지 않는다** —
+-- policies/sync_runs의 write와 같은 방식으로, service_role만 읽고 쓴다.
+-- 서명은 서버가 직접 계산하므로(§2.3) 클라이언트가 캐시를 오염시킬 길이 함께 막힌다.
 drop policy if exists verdicts_own on verdicts;
-create policy verdicts_own on verdicts
-  for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 drop policy if exists scraps_own on scraps;
 create policy scraps_own on scraps

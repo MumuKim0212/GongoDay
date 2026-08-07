@@ -54,7 +54,7 @@ const get = async <T,>(pathAndQuery: string, headers: Record<string, string>): P
 const collapse = (s: string) => normalize(s).text;
 
 // ── 1. 저장된 검증 통과분 전량에서 하이라이트가 성립하는가 ─────────────
-// verdicts는 RLS로 본인 행만 보이므로 집계는 service_role로 읽는다 (admin 화면과 같은 이유).
+// verdicts에는 RLS 정책이 없다 — 조건별 공유 캐시라 service_role로만 읽고 쓴다 (§2.3).
 const verified = await get<{ policy_id: string; quote: string }[]>(
   "verdicts?select=policy_id,quote&quote_verified=is.true",
   admin,
@@ -125,10 +125,18 @@ const context = await browser.newContext({
 });
 const page: Page = await context.newPage();
 
-// 이 세션이 실제로 보는 판정에서 고른다 — 남의 서명으로 저장된 판정은 화면에 뜨지 않는다.
-await page.goto(base, { waitUntil: "networkidle" });
-await page.getByRole("button", { name: /판정하기/ }).click();
-await page.getByText(/해당 \d|애매 \d|아님 \d/).waitFor({ timeout: 60_000 });
+// 이 세션이 실제로 보는 판정에서 고른다 — 서명이 다른 판정은 화면에 뜨지 않는다.
+// **목록 뷰로 연다.** 기본은 타일인데 타일은 판정 이유까지만 보여준다 — 인용문(`blockquote`)은
+// 목록 뷰의 몫이다 (ARCHITECTURE §6.1). 아래 검사가 찾는 것이 바로 그 인용문이다.
+// **누를 버튼도 없다.** 목록을 열면 판정이 자동으로 돈다 (F-11) — 스켈레톤이 걷힐 때까지 기다린다.
+// `networkidle`은 판정 요청이 나가기 전에 떨어지므로 먼저 한 박자 준다. 전건 캐시면
+// 스켈레톤이 아예 안 뜨는데, 그때 `detached` 대기는 즉시 통과한다.
+await page.goto(`${base}/?view=list`, { waitUntil: "networkidle" });
+await page.waitForTimeout(700);
+await page
+  .getByRole("status", { name: "판정 중" })
+  .first()
+  .waitFor({ state: "detached", timeout: 60_000 });
 
 const quoted = await page.locator("article").evaluateAll((els) =>
   els
@@ -198,9 +206,8 @@ if (target !== undefined) {
       `verdicts?select=id,quote&policy_id=eq.${newlineCase.id}&quote_verified=is.true`,
       admin,
     );
-    const row = rows.find((r) => r.quote === newlineCase.quote) ?? rows[0];
-    const patch = async (quote: string) => {
-      const res = await fetch(`${env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/verdicts?id=eq.${row.id}`, {
+    const patchOne = async (id: string, quote: string) => {
+      const res = await fetch(`${env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/verdicts?id=eq.${id}`, {
         method: "PATCH",
         headers: { ...admin, "Content-Type": "application/json" },
         body: JSON.stringify({ quote }),
@@ -208,8 +215,15 @@ if (target !== undefined) {
       if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
     };
 
+    // ⚠️ **한 정책에 서명별로 여러 행이 있다** (§2.3의 조건별 공유 캐시). 화면이 그중 어느 행을
+    // 읽는지는 이 세션의 서명에 달려 있어 여기서 알 수 없다. 하나만 바꾸면 화면은 손대지 않은
+    // 행을 그려서, 검사가 만들어 넣은 인용문이 아니라 엉뚱한 문장을 보게 된다.
+    // 전부 같은 값으로 바꿨다가 전부 원래대로 되돌린다.
+    const patchAll = (quote: string) => Promise.all(rows.map((r) => patchOne(r.id, quote)));
+    const restoreAll = () => Promise.all(rows.map((r) => patchOne(r.id, r.quote)));
+
     check(st.indexOf(fixture) < 0, "만든 인용문은 원문 그대로는 찾을 수 없다 (개행이 끼어 있다)");
-    await patch(fixture);
+    await patchAll(fixture);
     await page.goto(`${base}/policies/${newlineCase.id}`, { waitUntil: "networkidle" });
 
     const mark = page.locator("#evidence mark");
@@ -223,7 +237,7 @@ if (target !== undefined) {
       marked !== null && /\n/.test(marked),
       "하이라이트 구간이 개행을 품는다 — 정규화 공간이 아니라 원본 구간을 칠했다",
     );
-    await patch(row.quote); // 원래 판정으로 되돌린다
+    await restoreAll(); // 원래 판정으로 되돌린다
   }
 
   // ── 스크랩. **버튼 글자가 바뀌기를 기다린다** — Server Action은 응답을 스트리밍으로 다시
@@ -278,12 +292,21 @@ check(
 
 await browser.close();
 
-/** 필드 본문 안쪽 개행 하나. 필드 사이 빈 줄과 `[라벨]` 다음 줄은 문장 중간이 아니라 뺀다. */
-function innerNewline(text: string): number {
+/**
+ * 필드 **본문 안쪽** 개행 하나. 이 자리 좌우 `pad`자를 잘라 인용문 fixture를 만들 것이므로,
+ * **그 창이 통째로 한 조각 안에 들어와야 한다.**
+ *
+ * ⚠️ `[라벨]` 바로 다음 줄을 고르면 안 된다. 근거 블록은 라벨을 제목(`<h2>`)으로 세우고 본문만
+ * 칠하므로(§5.4 · 커밋 971cfdd), 라벨과 본문에 걸친 구간은 한 덩어리로 칠할 수 없다 —
+ * 화면에는 본문 쪽 조각만 칠해져 "개행을 품지 않은 하이라이트"로 보인다.
+ */
+function innerNewline(text: string, pad = 20): number {
   for (let i = 1; i < text.length - 1; i++) {
-    if (text[i] === "\n" && text[i - 1] !== "\n" && text[i + 1] !== "\n" && text[i + 1] !== "[") {
-      return i;
-    }
+    if (text[i] !== "\n") continue;
+    const window = text.slice(Math.max(0, i - pad), Math.min(text.length, i + pad));
+    // 창 안에 라벨이나 빈 줄이 있으면 조각 경계를 넘는다
+    if (/[[\]]|\n\s*\n/.test(window)) continue;
+    return i;
   }
   return -1;
 }

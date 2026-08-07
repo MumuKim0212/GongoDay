@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { log } from "@/lib/log";
 import { PAGE_SIZE } from "@/lib/policies/query";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { checkGate, type PolicyConditions, type Profile } from "@/lib/verdict/gate";
 import { callGemini } from "@/lib/verdict/gemini";
@@ -18,6 +19,17 @@ import { validateVerdict, type DecidedVerdict } from "@/lib/verdict/validate";
  *
  * **요청은 `policyIds`만 받는다.** 프로필도 서명도 클라이언트에서 받지 않고 서버가 직접 조회해
  * 계산한다 — 클라이언트가 보낸 조건으로 판정하면 남의 프로필로 캐시를 오염시킬 수 있다 (§2.3).
+ *
+ * **응답은 NDJSON 스트림이다.** 한 줄에 JSON 하나:
+ *
+ * ```
+ * {"t":"v","id":"<policy_id>","v":{…}}                 판정 한 건
+ * {"t":"v","id":"…","v":{…},"failed":true}             AI 호출 실패 — 저장 안 함, 다시 부를 수 있다
+ * {"t":"done","stats":{…}}                             마지막 줄
+ * ```
+ *
+ * 판정을 시작하기 전에 끝난 실패(세션·프로필·조회)는 스트림이 아니라 상태코드 붙은 JSON이다 —
+ * 스트림은 200으로 시작해버려서 그 뒤로는 실패를 알릴 방법이 없다.
  */
 
 // 빼먹으면 로컬은 되고 배포에서만 끊긴다. 건당 15초 × 10건 병렬이라 이 상한 안에 들어간다 (§5.1.1).
@@ -118,11 +130,12 @@ export async function POST(req: Request) {
   }
   const policies = (policyRows ?? []) as unknown as PolicyRow[];
 
-  // 캐시 — (정책, 사용자, 서명)이 같으면 다시 판정하지 않는다 (F-16). 서명이 다르면 안 잡히고 재판정된다.
-  const { data: cached } = await supabase
+  // 캐시 — (정책, 서명)이 같으면 다시 판정하지 않는다 (F-16). 서명이 다르면 안 잡히고 재판정된다.
+  // **사용자로 걸러지 않는다.** 판정은 서명과 원문에만 의존하므로 남이 부른 것도 그대로 쓴다 (§2.3).
+  const db = createAdminClient();
+  const { data: cached } = await db
     .from("verdicts")
     .select("policy_id, verdict, decided_by, reason, quote, quote_verified, blockers, checks")
-    .eq("user_id", user.id)
     .eq("profile_signature", signature)
     .in("policy_id", policyIds);
 
@@ -187,64 +200,101 @@ export async function POST(req: Request) {
 
   stats.ai_called = forAi.length;
 
-  // 게이트 통과분만 병렬 호출. 건당 타임아웃은 gemini.ts 안에 있고, 이 함수는 throw하지 않는다.
-  const answered = await Promise.all(
-    forAi.map(async (policy) => {
-      const sourceText = buildSourceText(policy);
-      return { policy, sourceText, raw: await callGemini(profileText, sourceText) };
-    }),
-  );
-
-  for (const { policy, sourceText, raw } of answered) {
-    if (raw === null) {
-      // 호출 자체가 실패했다 (키·네트워크·타임아웃). 해당 카드만 '애매'이고 다른 카드는 정상이다 (§7).
-      // **저장하지 않는다** — 판정이 아니라 판정 못 함이라, 다시 누르면 재시도되어야 한다.
-      stats.ai_failed++;
-      verdicts[policy.id] = {
-        verdict: "unclear",
-        decided_by: "ai",
-        reason: AI_FAILED_REASON,
-        quote: null,
-        quote_verified: false,
-        blockers: [],
-        checks: [],
+  // 여기서부터 스트림이다. **묶어서 부르는 게 싼 게 아니었다** — 아래 호출은 예전부터 병렬이었고,
+  // 응답이 JSON 한 덩어리라 제일 느린 1건이 나머지를 붙잡고 있었을 뿐이다. 끝나는 대로 한 줄씩 흘린다.
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let open = true;
+      const line = (obj: unknown) => {
+        if (!open) return;
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
+        } catch {
+          // 클라이언트가 끊었다. **판정은 계속 받아 저장한다** — 이미 값을 치른 호출이라
+          // 여기서 버리면 다음 방문에 똑같이 다시 부른다.
+          open = false;
+        }
       };
-      continue;
-    }
 
-    // 검증 실패(인용이 원문에 없음)는 저장한다 — temperature 0이라 다시 물어도 같은 답이 온다 (§7.4).
-    const v = validateVerdict(raw, sourceText);
-    const decided: DecidedVerdict = {
-      verdict: v.verdict,
-      decided_by: "ai",
-      reason: v.reason,
-      quote: v.quote,
-      quote_verified: v.quote_verified,
-      blockers: v.blockers,
-      checks: v.checks,
-    };
-    verdicts[policy.id] = decided;
-    toSave.push({ ...decided, policy_id: policy.id });
-  }
+      // 캐시·게이트·빈 프로필분은 이미 답이 나와 있다. 첫 줄부터 배지가 붙는다.
+      for (const [id, v] of Object.entries(verdicts)) line({ t: "v", id, v });
 
-  if (toSave.length > 0) {
-    // RLS가 한 번 더 막지만 user_id는 세션 값으로 고정한다 (§2.5).
-    const { error } = await supabase.from("verdicts").upsert(
-      toSave.map((row) => ({ ...row, user_id: user.id, profile_signature: signature })),
-      { onConflict: "policy_id,user_id,profile_signature" },
-    );
-    // 저장 실패가 판정 결과를 못 쓰게 만들 이유는 없다. 화면엔 그대로 보여주고 다음 클릭에 다시 시도된다.
-    if (error) {
-      // 사용자는 판정을 정상으로 받는다. **다시 눌러도 캐시가 비어 또 부른다**는 게 진짜 비용이라
-      // 화면에 안 보이는 이 실패를 로그로 세워둔다.
-      stats.save_error = error.message;
-      log.error("verdicts.save_failed", { count: toSave.length, message: error.message });
-    }
-  }
+      // 게이트 통과분. 건당 타임아웃은 gemini.ts 안에 있고, 이 함수는 throw하지 않는다.
+      await Promise.all(
+        forAi.map(async (policy) => {
+          const sourceText = buildSourceText(policy);
+          const raw = await callGemini(profileText, sourceText);
 
-  // 호출 비용 장부 (PRD §7.7). `ai_called`가 0인지를 완료 판정 1·4가 보고,
-  // `cached`와의 비율이 캐시가 실제로 듣고 있는지를 말해준다.
-  log.info("verdicts.batch", { ...stats, durationMs: Date.now() - startedAt });
+          if (raw === null) {
+            // 호출 자체가 실패했다 (키·네트워크·타임아웃). 이 카드만 '애매'이고 나머지는 정상이다 (§7).
+            // **저장하지 않는다** — 판정이 아니라 판정 못 함이라 다시 부르면 재시도되어야 한다.
+            // `failed`로 표시해 보내 화면이 '다시 판정' 손잡이를 띄울 수 있게 한다.
+            stats.ai_failed++;
+            line({
+              t: "v",
+              id: policy.id,
+              failed: true,
+              v: {
+                verdict: "unclear",
+                decided_by: "ai",
+                reason: AI_FAILED_REASON,
+                quote: null,
+                quote_verified: false,
+                blockers: [],
+                checks: [],
+              } satisfies DecidedVerdict,
+            });
+            return;
+          }
 
-  return NextResponse.json({ verdicts, stats });
+          // 검증 실패(인용이 원문에 없음)는 저장한다 — temperature 0이라 다시 물어도 같은 답이 온다 (§7.4).
+          const v = validateVerdict(raw, sourceText);
+          const decided: DecidedVerdict = {
+            verdict: v.verdict,
+            decided_by: "ai",
+            reason: v.reason,
+            quote: v.quote,
+            quote_verified: v.quote_verified,
+            blockers: v.blockers,
+            checks: v.checks,
+          };
+          toSave.push({ ...decided, policy_id: policy.id });
+          line({ t: "v", id: policy.id, v: decided });
+        }),
+      );
+
+      if (toSave.length > 0) {
+        // 공유 캐시라 RLS 정책이 없다 — 이 라우트만 쓴다. 서명은 위에서 서버가 계산한 값이므로
+        // 클라이언트가 남의 캐시 자리에 쓸 방법이 없다 (§2.5). `requested_by`는 기록일 뿐 키가 아니다.
+        const { error } = await db.from("verdicts").upsert(
+          toSave.map((row) => ({ ...row, requested_by: user.id, profile_signature: signature })),
+          { onConflict: "policy_id,profile_signature" },
+        );
+        // 저장 실패가 판정 결과를 못 쓰게 만들 이유는 없다. 화면엔 그대로 보여주고 다음에 다시 시도된다.
+        if (error) {
+          // 사용자는 판정을 정상으로 받는다. **다시 열어도 캐시가 비어 또 부른다**는 게 진짜 비용이라
+          // 화면에 안 보이는 이 실패를 로그로 세워둔다.
+          stats.save_error = error.message;
+          log.error("verdicts.save_failed", { count: toSave.length, message: error.message });
+        }
+      }
+
+      // 호출 비용 장부 (PRD §7.7). `ai_called`가 0인지를 완료 판정 1·4가 보고,
+      // `cached`와의 비율이 캐시가 실제로 듣고 있는지를 말해준다.
+      log.info("verdicts.batch", { ...stats, durationMs: Date.now() - startedAt });
+
+      line({ t: "done", stats });
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+      // 중간 프록시가 버퍼링하면 스트리밍이 통째로 무의미해진다
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

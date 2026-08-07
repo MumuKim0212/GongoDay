@@ -9,6 +9,7 @@ import { CODE_LABELS } from "@/lib/profile/schema";
 import { CATEGORIES, DEFAULT_CATEGORIES, type Category } from "@/lib/sources/category";
 import { SIDO_NAMES } from "@/lib/sources/region";
 import { PAGE_SIZE, defaultFilters, fetchPolicies, type ListFilters } from "@/lib/policies/query";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { lastFullSync } from "@/lib/sync/last-full";
 import type { Profile } from "@/lib/verdict/gate";
@@ -65,7 +66,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
 
   const { rows, filteredCount, totalCount, error } = await fetchPolicies(supabase, filters);
   const [verdicts, syncedAt] = await Promise.all([
-    fetchVerdicts(supabase, user?.id ?? null, signature, rows.map((r) => r.id)),
+    fetchVerdicts(signature, rows.map((r) => r.id)),
     lastFullSync(supabase),
   ]);
 
@@ -235,20 +236,20 @@ function parseCategories(raw: string | null, interests: string[] | undefined): C
  * 한 번 판정한 페이지를 다시 열어도 호출이 0건이어야 한다 (§6.1).
  *
  * **서명으로 걸러야 한다.** 서명을 빼고 읽으면 조건을 고친 뒤에도 옛 판정이 그대로 붙어
- * **새 조건으로 판정한 것처럼 보인다** — 판정 버튼을 누르기 전까지 사용자는 알 수 없다 (§5.5).
+ * **새 조건으로 판정한 것처럼 보인다** — 사용자는 알아챌 방법이 없다 (§5.5).
+ *
+ * 공유 캐시라 사용자로 걸러지 않는다 — 서명이 같으면 남이 부른 판정도 그대로 쓴다 (§2.3).
+ * `verdicts`에는 RLS 정책이 없어 service_role로만 읽힌다.
  */
 async function fetchVerdicts(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  userId: string | null,
   signature: string | null,
   policyIds: string[],
 ): Promise<Record<string, DecidedVerdict>> {
-  if (!userId || signature === null || policyIds.length === 0) return {};
+  if (signature === null || policyIds.length === 0) return {};
 
-  const { data } = await supabase
+  const { data } = await createAdminClient()
     .from("verdicts")
     .select("policy_id, verdict, decided_by, reason, quote, quote_verified, blockers, checks")
-    .eq("user_id", userId)
     .eq("profile_signature", signature)
     .in("policy_id", policyIds);
 

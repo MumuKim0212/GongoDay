@@ -4,6 +4,7 @@ import { BackToList } from "@/components/BackToList";
 import { CategoryBadge, ScoreBadge } from "@/components/badges";
 import { QuoteHighlight } from "@/components/QuoteHighlight";
 import { CATEGORY_LABELS, type Category } from "@/lib/sources/category";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/verdict/gate";
 import { locateQuote } from "@/lib/verdict/normalize";
@@ -72,12 +73,12 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
     : { data: null };
   const profile = profileRow as unknown as Profile | null;
 
-  // 목록과 같은 규칙 — 서명이 다른 판정은 지금 조건의 판정이 아니다 (§5.5)
-  const { data: verdictRow } = user && profile
-    ? await supabase
+  // 목록과 같은 규칙 — 서명이 다른 판정은 지금 조건의 판정이 아니다 (§5.5).
+  // 공유 캐시라 사용자로 걸러지 않는다. RLS 정책이 없어 service_role로만 읽힌다 (§2.3).
+  const { data: verdictRow } = profile
+    ? await createAdminClient()
         .from("verdicts")
         .select("verdict, decided_by, reason, quote, quote_verified, blockers, checks")
-        .eq("user_id", user.id)
         .eq("policy_id", policy.id)
         .eq("profile_signature", profileSignature(profile))
         .maybeSingle()
@@ -218,7 +219,7 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
             <BackToList className="text-accent-ink underline underline-offset-2">
               목록
             </BackToList>
-            에서 <strong>판정하기</strong>를 누르면 이 정책도 함께 판정됩니다.
+            에서 이 정책이 있는 페이지를 열면 함께 판정됩니다.
           </p>
         )}
       </section>

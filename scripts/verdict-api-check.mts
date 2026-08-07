@@ -62,9 +62,76 @@ const context: BrowserContext = await browser.newContext({
 });
 const page: Page = await context.newPage();
 
+/** 키 순서에 흔들리지 않는 직렬화. 스트림 응답을 서로 비교할 때 쓴다. */
+const stable = (v: unknown): string =>
+  JSON.stringify(v, (_k, val) =>
+    val !== null && typeof val === "object" && !Array.isArray(val)
+      ? Object.fromEntries(Object.entries(val as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1)))
+      : val,
+  );
+
+/** 배지 문구는 5단계 점수에서 나온다 (§5.6) — `scoreLabel()`과 한 벌이다 */
+const BADGE = /신청 가능|확인 \d+개|조건 미기재|아님/;
+
+/** 배지 문구를 점수로 되돌린다. 정렬 검사가 이 값을 본다 */
+const badgeScore = (badge: string) =>
+  badge === "신청 가능" ? 5
+  : badge === "확인 1개" ? 4
+  : /^확인 \d+개$/.test(badge) ? 3
+  : badge === "조건 미기재" ? 2
+  : badge === "아님" ? 1
+  : 0;
+
+/**
+ * 응답은 **NDJSON 스트림이다** — 한 줄에 JSON 하나 (§5). 아래 검사들이 전건을 한 덩어리로 보는
+ * 편이 읽기 쉬우므로 여기서 예전 모양(`{ verdicts, stats }`)으로 되접는다.
+ */
 async function judge(policyIds: string[]): Promise<ApiBody> {
   const res = await context.request.post(`${base}/api/verdicts`, { data: { policyIds } });
-  return (await res.json()) as ApiBody;
+  const verdicts: ApiBody["verdicts"] = {};
+  let stats: ApiBody["stats"] | null = null;
+
+  for (const line of (await res.text()).split("\n")) {
+    if (line === "") continue;
+    const msg = JSON.parse(line) as
+      | { t: "v"; id: string; v: Decided }
+      | { t: "done"; stats: ApiBody["stats"] };
+    if (msg.t === "v") verdicts[msg.id] = msg.v;
+    else stats = msg.stats;
+  }
+
+  // `done`이 없으면 스트림이 중간에 끊긴 것이다 — 조용히 0으로 넘기면 캐시 검사가 통과해버린다.
+  if (stats === null) throw new Error(`판정 스트림이 done 없이 끝났다: ${res.status()}`);
+  return { verdicts, stats };
+}
+
+/**
+ * 선택 칩을 켠다. **체크박스를 직접 누를 수 없다** — `.chip input`이 `opacity:0`에 0×0이라
+ * (globals.css §5.3) Playwright가 "보이지 않음"·"뷰포트 밖"으로 막는다. 사용자가 실제로
+ * 누르는 것도 감싼 `<label>`이므로 그쪽을 누른다.
+ */
+const chip = (group: string, label: string) =>
+  page.getByRole("group", { name: group }).locator("label").filter({ hasText: label }).first().click();
+
+/** 프로필 저장은 목록으로 리다이렉트한다 (`app/profile/actions.ts`) */
+async function saveProfile(): Promise<void> {
+  await page.getByRole("button", { name: /^저장$/ }).click();
+  await page.waitForURL(`${base}/`, { timeout: 20000 });
+}
+
+/**
+ * 목록이 띄운 자동 판정이 끝나기를 기다린다 (F-11).
+ *
+ * ⚠️ **`resetVerdicts` 앞에 반드시 있어야 한다.** 목록을 열면 판정이 자동으로 시작되는데,
+ * 그 요청이 아직 날아가는 중에 캐시를 지우면 **지운 뒤에 저장이 도착해** 캐시가 되살아난다.
+ * 그러면 "첫 판정은 Gemini를 부른다"가 `cached=10`으로 뒤집힌다.
+ */
+async function waitForJudged(): Promise<void> {
+  await page.waitForTimeout(700);
+  await page
+    .getByRole("status", { name: "판정 중" })
+    .first()
+    .waitFor({ state: "detached", timeout: 60000 });
 }
 
 /**
@@ -85,13 +152,12 @@ async function resetVerdicts(policyIds: string[]): Promise<void> {
 
 // ── 프로필을 매번 같은 값으로 맞춘다. 서명이 달라지면 캐시 검사의 전제가 무너진다.
 await page.goto(`${base}/profile`, { waitUntil: "networkidle" });
-await page.getByLabel("생년").fill("1998");
+await page.getByLabel("생년").selectOption("1998");
 await page.getByLabel("시도").selectOption("11");
 await page.getByLabel("시군구").selectOption("동대문구");
-await page.getByRole("group", { name: "개인 상황" }).getByRole("checkbox", { name: "근로자/직장인" }).check();
-await page.getByRole("group", { name: "가구 상황" }).getByRole("checkbox", { name: "1인가구" }).check();
-await page.getByRole("button", { name: /저장/ }).click();
-await page.getByText("저장했습니다", { exact: false }).waitFor({ timeout: 20000 });
+await chip("개인 상황", "근로자/직장인");
+await chip("가구 상황", "1인가구");
+await saveProfile();
 
 // ── 1. 나이가 크게 어긋나는 정책은 Gemini 호출 없이 '아님' (완료 판정 4)
 const kids = await fetch(
@@ -106,6 +172,7 @@ const ids = await page.locator('article a[href^="/policies/"]').evaluateAll((els
 );
 check(ids.length === 10, "목록 첫 페이지가 10건", `${ids.length}건`);
 
+await waitForJudged();
 await resetVerdicts([...kids.map((k) => k.id), ...ids]);
 
 const gated = await judge(kids.map((k) => k.id));
@@ -152,52 +219,63 @@ check(
 const second = await judge(ids);
 check(second.stats.ai_called === 0, "같은 프로필로 두 번째 판정 → Gemini 호출 0건", `ai_called=${second.stats.ai_called}`);
 check(second.stats.cached === ids.length, "전건이 캐시에서 나온다", `cached=${second.stats.cached}/${ids.length}`);
-check(
-  JSON.stringify(second.verdicts) === JSON.stringify(first.verdicts),
-  "캐시된 판정이 처음 판정과 같다",
-);
+// **키 순서로 비교하면 안 된다.** 응답이 스트림이라 도착 순서가 매번 다르다 — 캐시분은 첫 줄부터
+// 한꺼번에, AI분은 끝나는 대로 온다(§5). 순서는 계약이 아니므로 정렬해서 비교한다.
+check(stable(second.verdicts) === stable(first.verdicts), "캐시된 판정이 처음 판정과 같다");
 
 // ── 3. 프로필을 고치면 서명이 바뀌어 다시 판정된다 (§5.5)
 await page.goto(`${base}/profile`, { waitUntil: "networkidle" });
-await page.getByLabel("생년").fill("1975");
-await page.getByRole("button", { name: /저장/ }).click();
-await page.getByText("저장했습니다", { exact: false }).waitFor({ timeout: 20000 });
+await page.getByLabel("생년").selectOption("1975");
+await saveProfile();
 const changed = await judge(ids.slice(0, 3));
 check(changed.stats.cached === 0, "프로필을 고치면 캐시가 안 잡힌다", `cached=${changed.stats.cached}`);
 
 // 원래 프로필로 되돌린다 — 다음 실행이 같은 서명에서 시작해야 한다
 await page.goto(`${base}/profile`, { waitUntil: "networkidle" });
-await page.getByLabel("생년").fill("1998");
-await page.getByRole("button", { name: /저장/ }).click();
-await page.getByText("저장했습니다", { exact: false }).waitFor({ timeout: 20000 });
+await page.getByLabel("생년").selectOption("1998");
+await saveProfile();
 
 // ── 4. 화면 — 배지·정렬·'아님' 노출
 await page.goto(base, { waitUntil: "networkidle" });
 const badgesBefore = await page
   .locator("article")
-  .evaluateAll((els) => els.filter((el) => /해당|애매|아님/.test(el.textContent ?? "")).length);
+  .evaluateAll(
+    (els, src) => els.filter((el) => new RegExp(src).test(el.textContent ?? "")).length,
+    BADGE.source,
+  );
 check(
   badgesBefore === ids.length,
   "저장된 판정이 목록 조회만으로 배지에 함께 나온다 (F-16)",
   `${badgesBefore}/${ids.length}건`,
 );
 
-await page.getByRole("button", { name: /판정하기/ }).click();
-await page.getByText(/해당 \d|애매 \d|아님 \d/).waitFor({ timeout: 60000 });
+// **누를 버튼이 없다.** 목록을 열면 자동으로 돈다 (F-11) — 스켈레톤이 걷힐 때까지 기다린다.
+// 위 단계에서 전건이 캐시에 들어갔으므로 여기서는 스켈레톤 없이 즉시 통과하는 것이 정상이다.
+await page.waitForTimeout(700);
+await page
+  .getByRole("status", { name: "판정 중" })
+  .first()
+  .waitFor({ state: "detached", timeout: 60000 });
 
-const cards = await page.locator("article").evaluateAll((els) =>
-  els.map((el) => {
-    const text = el.textContent ?? "";
-    const href = el.querySelector('a[href^="/policies/"]')?.getAttribute("href") ?? "";
-    return { id: href.replace("/policies/", ""), badge: /해당|애매|아님/.exec(text)?.[0] ?? "", text };
-  }),
+const cards = await page.locator("article").evaluateAll(
+  (els, src) =>
+    els.map((el) => {
+      const text = el.textContent ?? "";
+      const href = el.querySelector('a[href^="/policies/"]')?.getAttribute("href") ?? "";
+      return { id: href.replace("/policies/", ""), badge: new RegExp(src).exec(text)?.[0] ?? "", text };
+    }),
+  BADGE.source,
 );
-check(cards.length === 10 && cards.every((c) => c.badge !== ""), "10건 전부에 배지가 붙는다", cards.map((c) => c.badge).join(""));
-
-const order = cards.map((c) => ["해당", "애매", "아님"].indexOf(c.badge));
 check(
-  order.every((v, i) => i === 0 || order[i - 1] <= v),
-  "해당 → 애매 → 아님 순으로 정렬된다",
+  cards.length === 10 && cards.every((c) => c.badge !== ""),
+  "10건 전부에 배지가 붙는다",
+  cards.map((c) => c.badge).join(" "),
+);
+
+const order = cards.map((c) => badgeScore(c.badge));
+check(
+  order.every((v, i) => i === 0 || order[i - 1] >= v),
+  "점수가 높은 것부터 정렬된다 (5 → 1)",
   cards.map((c) => c.badge).join(" "),
 );
 
@@ -211,18 +289,31 @@ check(
   `화면 ${rejected.length}건 / 판정 ${rejectedIds.length}건`,
 );
 
+// ⚠️ **여기서만 목록 뷰로 바꾼다.** 기본은 타일이고 타일은 판정 이유까지만 보여준다 —
+// 인용문·확인 항목·블로커는 목록 뷰의 몫이다 (ARCHITECTURE §6.1). 뷰를 안 맞추면
+// "블로커가 안 보인다"가 아니라 "타일을 보고 있다"를 실패로 잡는다.
+await page.goto(`${base}/?view=list`, { waitUntil: "networkidle" });
+const listCards = await page.locator("article").evaluateAll((els) =>
+  els.map((el) => ({
+    id: el.querySelector('a[href^="/policies/"]')?.getAttribute("href")?.replace("/policies/", "") ?? "",
+    text: el.textContent ?? "",
+  })),
+);
+
 // 카드에 그려진 인용문은 개행이 살아 있고 blockers는 공백이 접혀 있다 (§5.4). 같은 공간에서 비교한다.
 const collapse = (s: string) => s.replace(/\s+/g, " ").trim();
 const why = (id: string) => {
   const v = onScreen.verdicts[id];
   return [v.reason ?? "", ...v.blockers].filter((s) => s.length > 0);
 };
+const rejectedInList = listCards.filter((c) => rejected.some((r) => r.id === c.id));
 check(
-  rejected.every(
-    (c) => why(c.id).length > 0 && why(c.id).every((s) => collapse(c.text).includes(collapse(s))),
-  ),
-  "'아님' 카드에 왜 아닌지가 적혀 있다 (blockers·이유 전부 노출)",
-  rejected.map((c) => why(c.id).join(" / ")).join(" ‖ ").slice(0, 200),
+  rejectedInList.length === rejected.length &&
+    rejectedInList.every(
+      (c) => why(c.id).length > 0 && why(c.id).every((s) => collapse(c.text).includes(collapse(s))),
+    ),
+  "'아님' 카드에 왜 아닌지가 적혀 있다 (목록 뷰 · blockers·이유 전부 노출)",
+  rejectedInList.map((c) => why(c.id).join(" / ")).join(" ‖ ").slice(0, 200),
 );
 check(
   (await page.getByText("· 코드").count()) + (await page.getByText("· AI").count()) === 10,

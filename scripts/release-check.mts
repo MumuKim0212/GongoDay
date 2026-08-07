@@ -26,17 +26,59 @@ const fail: string[] = [];
 const check = (ok: boolean, label: string, detail = "") =>
   (ok ? pass : fail).push(`${label}${detail ? ` — ${detail}` : ""}`);
 
+/**
+ * 선택 칩을 켠다. **체크박스를 직접 누를 수 없다** — `.chip input`이 `opacity:0`에 0×0이라
+ * (globals.css §5.3) Playwright가 "보이지 않음"·"뷰포트 밖"으로 막는다. 사용자가 실제로
+ * 누르는 것도 감싼 `<label>`이므로 그쪽을 누른다.
+ */
+const chip = (page: Page, group: string, label: string) =>
+  page.getByRole("group", { name: group }).locator("label").filter({ hasText: label }).first().click();
+
+/** 프로필 저장은 목록으로 리다이렉트한다 (`app/profile/actions.ts`) */
+async function saveProfile(page: Page) {
+  await page.getByRole("button", { name: /^저장$/ }).click();
+  await page.waitForURL(`${base}/`, { timeout: 20_000 });
+}
+
+/**
+ * 판정이 끝나기를 기다린다. **누를 버튼이 없다** — 목록을 열면 자동으로 돈다 (F-11).
+ *
+ * `networkidle`은 판정 요청이 나가기 전에 떨어지므로 먼저 한 박자 준다. 전건 캐시면 스켈레톤이
+ * 아예 안 뜨는데, 그때 `detached` 대기는 즉시 통과하므로 두 경우가 같은 코드로 처리된다.
+ */
+async function waitForJudged(page: Page) {
+  await page.waitForTimeout(700);
+  await page
+    .getByRole("status", { name: "판정 중" })
+    .first()
+    .waitFor({ state: "detached", timeout: 60_000 });
+}
+
 const browser = await chromium.launch();
 /** 저장된 상태 없이 연다 — 시크릿 창과 같다 */
 const fresh = () => browser.newContext({ viewport: { width: 1000, height: 1400 } });
 
+/** 배지 문구는 5단계 점수에서 나온다 (§5.6) — `scoreLabel()`과 한 벌이다 */
+const BADGE = /신청 가능|확인 \d+개|조건 미기재|아님/;
+
+/** 배지 문구를 점수로 되돌린다. 정렬 검사가 이 값을 본다 */
+const badgeScore = (badge: string) =>
+  badge === "신청 가능" ? 5
+  : badge === "확인 1개" ? 4
+  : /^확인 \d+개$/.test(badge) ? 3
+  : badge === "조건 미기재" ? 2
+  : badge === "아님" ? 1
+  : 0;
+
 const cards = (page: Page) =>
-  page.locator("article").evaluateAll((els) =>
-    els.map((el) => ({
-      id: el.querySelector('a[href^="/policies/"]')?.getAttribute("href")?.replace("/policies/", "") ?? "",
-      badge: /해당|애매|아님/.exec(el.textContent ?? "")?.[0] ?? "",
-      text: el.textContent ?? "",
-    })),
+  page.locator("article").evaluateAll(
+    (els, src) =>
+      els.map((el) => ({
+        id: el.querySelector('a[href^="/policies/"]')?.getAttribute("href")?.replace("/policies/", "") ?? "",
+        badge: new RegExp(src).exec(el.textContent ?? "")?.[0] ?? "",
+        text: el.textContent ?? "",
+      })),
+    BADGE.source,
   );
 
 // ── 1. 첫 방문 — 쿠키 없이 목록이 보인다 (REQ-04) ──────────────────────
@@ -72,30 +114,25 @@ check(
 
 // ── 2. 프로필이 비어 있어도 판정은 동작한다 (§7 새 행) ─────────────────
 await page.goto(`${base}/profile`, { waitUntil: "networkidle" });
-await page.getByRole("button", { name: /저장/ }).click();
-await page.getByText("저장했습니다", { exact: false }).waitFor({ timeout: 20_000 });
+await saveProfile(page);
 
-await page.goto(base, { waitUntil: "networkidle" });
-await page.getByRole("button", { name: /판정하기/ }).click();
-await page.getByText(/해당 \d|애매 \d|아님 \d/).waitFor({ timeout: 60_000 });
+await waitForJudged(page);
 const emptyProfileCards = await cards(page);
 check(
-  emptyProfileCards.every((c) => c.badge === "애매"),
-  "조건이 비어 있으면 전건 '애매' (AI를 부르지 않는다)",
-  emptyProfileCards.map((c) => c.badge).join(""),
+  emptyProfileCards.every((c) => c.badge === "조건 미기재"),
+  "조건이 비어 있으면 전건 2점 '조건 미기재' (AI를 부르지 않는다)",
+  emptyProfileCards.map((c) => c.badge).join(" "),
 );
 check(
   emptyProfileCards.every((c) => c.text.includes("판정에 쓸 조건이 비어 있습니다")),
-  "왜 애매인지 말하고 무엇을 채우라고 안내한다",
+  "왜 판정이 안 되는지 말하고 무엇을 채우라고 안내한다",
 );
 
 // ── 3. 프로필 일부만 채워도 동작한다 → 목록이 좁혀진다 ─────────────────
 const before = await countText(page);
 await page.goto(`${base}/profile`, { waitUntil: "networkidle" });
-await page.getByLabel("생년").fill("1998");
-await page.getByRole("button", { name: /저장/ }).click();
-await page.getByText("저장했습니다", { exact: false }).waitFor({ timeout: 20_000 });
-await page.goto(base, { waitUntil: "networkidle" });
+await page.getByLabel("생년").selectOption("1998");
+await saveProfile(page);
 const afterBirth = await countText(page);
 check(afterBirth < before, "생년만 채워도 목록이 좁혀진다 (일부만 채운 프로필도 정상 동작)", `${before} → ${afterBirth}`);
 
@@ -103,24 +140,26 @@ check(afterBirth < before, "생년만 채워도 목록이 좁혀진다 (일부�
 await page.goto(`${base}/profile`, { waitUntil: "networkidle" });
 await page.getByLabel("시도").selectOption("11");
 await page.getByLabel("시군구").selectOption("동대문구");
-await page.getByRole("group", { name: "개인 상황" }).getByRole("checkbox", { name: "근로자/직장인" }).check();
-await page.getByRole("group", { name: "가구 상황" }).getByRole("checkbox", { name: "1인가구" }).check();
-await page.getByRole("button", { name: /저장/ }).click();
-await page.getByText("저장했습니다", { exact: false }).waitFor({ timeout: 20_000 });
-await page.goto(base, { waitUntil: "networkidle" });
+await chip(page, "개인 상황", "근로자/직장인");
+await chip(page, "가구 상황", "1인가구");
+await saveProfile(page);
 check((await countText(page)) < afterBirth, "지역까지 채우면 더 좁혀진다", `${afterBirth} → ${await countText(page)}`);
 
 // ── 4. 판정 — 배지 · 스켈레톤 · 정렬 · 코드/AI 구분 ────────────────────
-await page.getByRole("button", { name: /판정하기/ }).click();
-// 판정 중에는 배지 자리에 스켈레톤이 선다 (§7). 결과가 오기 전에 세야 한다.
+// 판정 중에는 배지 자리에 스켈레톤이 선다 (§7). 자동 판정이 도는 중에 세야 한다 —
+// 위에서 프로필을 저장하고 막 돌아왔으므로 이 페이지의 판정은 아직 캐시에 없다.
 const skeletons = await page.getByRole("status", { name: "판정 중" }).count();
 check(skeletons > 0, "판정 중에는 카드별 스켈레톤이 보인다", `${skeletons}개`);
 
-await page.getByText(/해당 \d|애매 \d|아님 \d/).waitFor({ timeout: 60_000 });
+await waitForJudged(page);
 const judged = await cards(page);
 check(judged.every((c) => c.badge !== ""), "10건 전부에 배지", judged.map((c) => c.badge).join(""));
-const order = judged.map((c) => ["해당", "애매", "아님"].indexOf(c.badge));
-check(order.every((v, i) => i === 0 || order[i - 1] <= v), "해당 → 애매 → 아님 정렬", judged.map((c) => c.badge).join(" "));
+const order = judged.map((c) => badgeScore(c.badge));
+check(
+  order.every((v, i) => i === 0 || order[i - 1] >= v),
+  "점수가 높은 것부터 정렬된다 (5 → 1)",
+  judged.map((c) => c.badge).join(" "),
+);
 check(
   (await page.getByText("· 코드").count()) + (await page.getByText("· AI").count()) === judged.length,
   "코드 판정과 AI 판정을 구분해 표시 (F-11b)",
@@ -188,11 +227,15 @@ const otherPage = await other.newPage();
 await otherPage.goto(`${base}/profile`, { waitUntil: "networkidle" });
 check((await otherPage.getByLabel("생년").inputValue()) === "", "다른 시크릿 창에는 내 조건이 없다");
 await otherPage.goto(base, { waitUntil: "networkidle" });
+// **격리 검사가 아니다.** 판정 캐시는 사용자별이 아니라 조건별이라(§2.3) 조건이 같으면
+// 다른 창에서도 그대로 보이는 게 맞다. 여기서 0인 이유는 이 창에 조건이 없어서다 —
+// 조건이 없으면 서명도 없고, 목록은 판정을 아예 읽지 않는다.
 check(
-  (await otherPage.locator("article").evaluateAll((els) =>
-    els.filter((el) => /해당|애매|아님/.test(el.textContent ?? "")).length,
+  (await otherPage.locator("article").evaluateAll(
+    (els, src) => els.filter((el) => new RegExp(src).test(el.textContent ?? "")).length,
+    BADGE.source,
   )) === 0,
-  "다른 시크릿 창에는 내 판정이 안 보인다",
+  "조건을 넣지 않은 창에는 판정이 보이지 않는다",
 );
 
 // ── 7. 수집 실패는 화면을 비우지 않는다 ────────────────────────────────
