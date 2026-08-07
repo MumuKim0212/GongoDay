@@ -95,7 +95,7 @@ export function youthRegion(zipCd: unknown): RegionFields {
  * `대한법률구조공단`처럼 **실제로 전국 기관인 것이 대부분**이다. 지역을 모르는 것을 '아님'으로 만들면
  * "숨기지 않는다"는 원칙에 어긋난다. 모르면 통과다.
  */
-export function gov24Region(orgName: unknown, orgType: unknown): RegionFields {
+export function gov24Region(orgName: unknown, orgType: unknown, title: unknown): RegionFields {
   const none: RegionFields = {
     is_nationwide: true,
     region_sidos: [],
@@ -107,7 +107,7 @@ export function gov24Region(orgName: unknown, orgType: unknown): RegionFields {
 
   const name = String(orgName ?? "").trim();
   const hit = SIDO_PREFIXES.find(([sidoName]) => name.startsWith(sidoName));
-  if (!hit) return fallback(name);
+  if (!hit) return fallback(name, String(title ?? "").trim());
 
   const [sidoName, code] = hit;
   const rest = name.slice(sidoName.length);
@@ -148,8 +148,14 @@ export function gov24Region(orgName: unknown, orgType: unknown): RegionFields {
  *
  * 전량 1,528건에 적용해 96개 기관 406건을 회수했고, 96개를 전수 확인해 오탐은 0건이었다.
  * 나머지 1,122건은 `대한법률구조공단`·`기술보증기금` 등 실제 전국 기관이라 그대로 둔다.
+ *
+ * 기관명으로 끝까지 안 되면 **정책명**을 본다. `재단법인강원인재원`처럼 기관명에는 약칭(`강원`)만
+ * 들었는데 정책명은 `2026년 강원특별자치도 장애인 평생교육이용권(3차)`로 정식 명칭을 쓰는 경우가 있다.
+ * 여기서도 규칙 1(정식 명칭만)을 그대로 지키므로 약칭으로 넓히는 것과 다르다.
+ * 시군구는 보지 않는다 — 기관명과 달리 정책명은 지역명이 본문 맥락으로 섞이기 쉽다. 시도 전역으로 둔다.
+ * 잔여 전국 취급분에 적용해 22건이 걸렸고, 전수 확인해 오탐은 0건이었다.
  */
-function fallback(name: string): RegionFields {
+function fallback(name: string, title: string): RegionFields {
   const sg = SIGUNGU_TO_SIDO.find(([sigunguName]) => name.includes(sigunguName));
   if (sg) {
     return { is_nationwide: false, region_sidos: [sg[1]], region_sigungu: sg[0], region_codes: [] };
@@ -158,6 +164,12 @@ function fallback(name: string): RegionFields {
   const sd = SIDO_PREFIXES.find(([sidoName]) => name.includes(sidoName));
   if (sd) {
     return { is_nationwide: false, region_sidos: [sd[1]], region_sigungu: null, region_codes: [] };
+  }
+
+  // 기관명이 약칭만 쓴 경우 — 정책명의 정식 시도명으로 회수한다. 시군구는 모르므로 시도 전역이다.
+  const t = SIDO_PREFIXES.find(([sidoName]) => title.includes(sidoName));
+  if (t) {
+    return { is_nationwide: false, region_sidos: [t[1]], region_sigungu: null, region_codes: [] };
   }
 
   // 지역을 못 찾으면 전국으로 둔다 — 모르는 것을 '아님'으로 만들지 않는다 (§5.0)

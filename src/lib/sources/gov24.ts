@@ -116,7 +116,7 @@ export function toPolicy(raw: unknown): PolicyInsert {
     document_text: text(s["구비서류"]),
     screening_text: null,
 
-    ...gov24Region(s["소관기관명"], s["소관기관유형"]),
+    ...gov24Region(s["소관기관명"], s["소관기관유형"], s["서비스명"]),
 
     categories: toCategories(s["서비스분야"]),
     audiences: String(s["사용자구분"] ?? "")

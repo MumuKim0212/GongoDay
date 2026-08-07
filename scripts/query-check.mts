@@ -35,13 +35,14 @@ const base = { ...defaultFilters(), ...ME };
 const withSigungu = await fetchPolicies(db, base);
 check(withSigungu.error === null, "조회 오류 없음", withSigungu.error ?? "");
 check(withSigungu.totalCount === 13662, "전체 건수 13,662", String(withSigungu.totalCount));
-check(withSigungu.filteredCount === 573, "1차 필터 + 동대문구 → 573건", String(withSigungu.filteredCount));
+// 573 → 569: 정책명으로 지역을 회수하면서 전국 취급이던 4건이 타 지역 전용이 됐다 (region.ts `fallback()`)
+check(withSigungu.filteredCount === 569, "1차 필터 + 동대문구 → 569건", String(withSigungu.filteredCount));
 
 const noSigungu = await fetchPolicies(db, { ...base, regionSigungu: null });
-check(noSigungu.filteredCount === 617, "1차 필터 (시군구 미선택) → 617건", String(noSigungu.filteredCount));
+check(noSigungu.filteredCount === 613, "1차 필터 (시군구 미선택) → 613건", String(noSigungu.filteredCount));
 
 const noProfile = await fetchPolicies(db, defaultFilters());
-check(noProfile.filteredCount > 617, "프로필 없으면 나이·지역 조건이 안 걸린다", `${noProfile.filteredCount}건`);
+check(noProfile.filteredCount > 613, "프로필 없으면 나이·지역 조건이 안 걸린다", `${noProfile.filteredCount}건`);
 
 // 페이지네이션
 check(withSigungu.rows.length === PAGE_SIZE, `1페이지가 ${PAGE_SIZE}건`, `${withSigungu.rows.length}건`);
