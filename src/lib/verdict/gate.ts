@@ -5,6 +5,10 @@
  * 게이트가 하는 일은 "확실히 아닌 것을 빼는 것"이지 "확실한 것만 남기는 것"이 아니다.
  *
  * ⚠️ 같은 규칙이 목록 SQL 1차 필터에도 있다 (§5.0.1). 규칙을 바꿀 때는 두 곳을 같이 바꾼다.
+ *
+ * **값은 여기가 유일한 출처다.** `AGE_SLACK`·`INDIVIDUAL_AUDIENCES`를 `query.ts`가 import한다 —
+ * 규칙의 형태(SQL 필터 ↔ 라벨링)는 의도된 중복이지만 상수까지 복사해 두면 한쪽만 고쳐도
+ * 타입이 통과해 **조용히 갈린다.**
  */
 import { CODE_LABELS } from "@/lib/profile/schema";
 
@@ -75,13 +79,13 @@ type CheckedGroup = "gender" | "income" | "situation" | "business";
  * 실측(28세·서울·기본분야 2개, 888건): `법인/시설/단체` 전용이 **271건(30.5%)**.
  * 개인이 신청 자체를 할 수 없는 공고라 §1.2의 불만 #1 "지원도 못하고"에 정확히 해당한다.
  */
-const INDIVIDUAL_AUDIENCES = ["개인", "소상공인", "가구"];
+export const INDIVIDUAL_AUDIENCES = ["개인", "소상공인", "가구"];
 
 /** JA0111 = 120은 상한 없음이다. 실측에서 가장 흔한 값이라 그대로 읽으면 대량 오판이 난다 (§2.1.3) */
 const NO_AGE_LIMIT = 120;
 
 /** 문구가 만나이인지 연나이인지 제각각이다. 경계에서 틀려 신청 기회를 잃게 만드는 것보다 애매한 게 낫다 */
-const AGE_SLACK = 1;
+export const AGE_SLACK = 1;
 
 /** 그룹별 '해당사항없음' 코드 = 그 그룹은 제한 없음 (§5.0) */
 const ANY_CODE: Partial<Record<CheckedGroup, string>> = {

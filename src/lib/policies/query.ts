@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { log } from "@/lib/log";
-import { ageFromBirthYear } from "@/lib/verdict/gate";
+import { AGE_SLACK, INDIVIDUAL_AUDIENCES, ageFromBirthYear } from "@/lib/verdict/gate";
 import { DEFAULT_CATEGORIES, type Category } from "@/lib/sources/category";
 
 /**
@@ -9,15 +9,12 @@ import { DEFAULT_CATEGORIES, type Category } from "@/lib/sources/category";
  *
  * ⚠️ **같은 규칙이 `gate.ts`에도 있다.** 여기는 걸러내고, 게이트는 라벨을 붙인다.
  * 하나로 합치려면 DB 함수나 뷰가 필요하다. **규칙을 바꿀 때는 두 곳을 같이 바꾼다.**
+ *
+ * 다만 **값은 `gate.ts`에서 가져온다** — 규칙의 형태는 어차피 둘로 갈라지지만(SQL ↔ 함수),
+ * 상수까지 복사해 두면 한쪽만 고쳐도 타입이 통과해 목록과 판정이 조용히 갈린다.
  */
 
 export const PAGE_SIZE = 10;
-
-/** 문구가 만나이인지 연나이인지 제각각이라 경계에 여유를 둔다. `gate.ts`의 AGE_SLACK과 같은 값이어야 한다. */
-const AGE_SLACK = 1;
-
-/** 개인이 신청할 수 있는 사용자구분. `gate.ts`의 INDIVIDUAL_AUDIENCES와 같아야 한다 (§5.0.3) */
-const INDIVIDUAL_AUDIENCES = ["개인", "소상공인", "가구"];
 
 /** 목록이 읽는 칸. `raw`는 무겁고 화면이 쓰지 않으므로 뺀다. */
 export const LIST_COLUMNS =
