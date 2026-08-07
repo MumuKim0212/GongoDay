@@ -9,6 +9,10 @@ import {
   GENDERS,
   HOUSEHOLDS,
   INCOME_BRACKETS,
+  INCOME_BRACKET_RATIOS,
+  MEDIAN_INCOME_MONTHLY,
+  MEDIAN_INCOME_SOURCE,
+  MEDIAN_INCOME_YEAR,
   SIDO_OPTIONS,
   SIGUNGU_OPTIONS,
   SITUATIONS,
@@ -17,7 +21,7 @@ import {
 import { CATEGORIES, CATEGORY_LABELS, type Category } from "@/lib/sources/category";
 
 /**
- * 고를 수 있는 생년. 올해부터 거꾸로 내려가고 범위는 서버 검증과 같다(`saveProfile`) —
+ * 고를 수 있는 출생년도. 올해부터 거꾸로 내려가고 범위는 서버 검증과 같다(`saveProfile`) —
  * 목록에 없는 값은 애초에 고를 수 없어야 두 쪽이 어긋나지 않는다.
  */
 const THIS_YEAR = new Date().getFullYear();
@@ -49,22 +53,29 @@ export function ProfileForm({ initial }: { initial: ProfileValues | null }) {
   const [state, formAction, pending] = useActionState<SaveState, FormData>(saveProfile, null);
   const [sido, setSido] = useState(initial?.region_sido ?? "");
   const [sigungu, setSigungu] = useState(initial?.region_sigungu ?? "");
+  // 소득 구간은 **비제어인 채로 둔다** — 이 상태는 저장값이 아니라 옆에 적을 금액을 고르는 데만 쓴다
+  const [income, setIncome] = useState(initial?.income_bracket ?? "");
 
   // 프로필이 없는 첫 방문은 DB 기본값과 같은 상태로 시작한다 (§2.2)
   const interests = initial?.interests ?? ["job", "housing"];
 
   return (
     <form action={formAction} className="mt-6 space-y-7">
-      <Section legend="생년">
+      <Section legend="출생년도">
         {/* **목록에서 고른다.** 숫자 입력의 화살표는 한 번에 1년씩 움직여 28년생을 찾는 데 쓸 수 없고,
             직접 치면 오타가 그대로 조건이 된다 — 목록은 있는 값만 고르게 한다 (DESIGN.md §5.3).
             내림차순이라 여는 순간 올해가 맨 위다. 다른 select와 같이 '선택 안 함'이 첫 칸인
-            이유는 **생년도 선택 사항이기 때문이다** — 올해가 기본으로 잡혀 있으면 손대지 않은
-            사용자가 0살로 저장되어 나이 조건이 목록을 통째로 비운다. */}
+            이유는 **출생년도도 선택 사항이기 때문이다** — 올해가 기본으로 잡혀 있으면 손대지 않은
+            사용자가 0살로 저장되어 나이 조건이 목록을 통째로 비운다.
+
+            `size`가 있어 펼쳐진 목록이 아니라 **네 줄짜리 스크롤 상자**다 — 1900년까지 100개가 넘는
+            항목이 드롭다운으로 열리면 화면을 통째로 덮는다. 브라우저가 고른 값을 보이는 데까지
+            스크롤해 주므로 저장된 연도는 열자마자 보인다. */}
         <select
           name="birth_year"
           defaultValue={initial?.birth_year ?? ""}
-          aria-label="생년"
+          size={4}
+          aria-label="출생년도"
           className="input w-auto"
         >
           <option value="">선택 안 함</option>
@@ -124,19 +135,23 @@ export function ProfileForm({ initial }: { initial: ProfileValues | null }) {
       </Section>
 
       <Section legend="소득 구간">
-        <select
-          name="income_bracket"
-          defaultValue={initial?.income_bracket ?? ""}
-          aria-label="소득 구간"
-          className="input w-auto"
-        >
-          <option value="">선택 안 함</option>
-          {INCOME_BRACKETS.map((o) => (
-            <option key={o.code} value={o.code}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <select
+            name="income_bracket"
+            defaultValue={initial?.income_bracket ?? ""}
+            onChange={(e) => setIncome(e.target.value)}
+            aria-label="소득 구간"
+            className="input w-auto"
+          >
+            <option value="">선택 안 함</option>
+            {INCOME_BRACKETS.map((o) => (
+              <option key={o.code} value={o.code}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <MedianIncomeNote code={income} />
+        </div>
       </Section>
 
       <Section legend="개인 상황">
@@ -202,6 +217,45 @@ function Section({ legend, children }: { legend: string; children: React.ReactNo
 
 function Hint({ children }: { children: React.ReactNode }) {
   return <p className="text-micro text-muted mt-2">{children}</p>;
+}
+
+/**
+ * 고른 구간이 실제로 얼마인지 셀렉트 오른쪽에 적는다.
+ *
+ * "중위소득 76~100%"는 비율일 뿐이라 자기가 해당되는지 알 수 없다. **금액을 적으려면 근거가 필요하다** —
+ * 그래서 연도와 고시 출처를 같이 걸고, 링크 없이 숫자만 적지 않는다.
+ *
+ * 가구원 수는 프로필이 받지 않는 값이라 **한 줄로 단정하지 않고 1인·4인을 나란히 적는다** —
+ * 하나만 적으면 다른 가구가 자기 기준으로 읽는다.
+ */
+function MedianIncomeNote({ code }: { code: string }) {
+  const ratio = INCOME_BRACKET_RATIOS[code];
+  if (!ratio) return null; // '선택 안 함'
+
+  return (
+    <p className="text-micro text-muted">
+      1인 가구 {amount(ratio, 1)} · 4인 가구 {amount(ratio, 4)}
+      <br />
+      <a
+        href={MEDIAN_INCOME_SOURCE.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-[var(--accent-ink)] underline"
+      >
+        {MEDIAN_INCOME_YEAR}년 기준 중위소득 · {MEDIAN_INCOME_SOURCE.label} ↗
+      </a>
+    </p>
+  );
+}
+
+/** 비율 구간을 월 소득으로 바꾼다. 상한이 없으면 "초과", 하한이 0이면 "이하"로 적는다. */
+function amount([lo, hi]: [number, number | null], size: 1 | 4): string {
+  const won = (pct: number) =>
+    Math.round((MEDIAN_INCOME_MONTHLY[size] * pct) / 100).toLocaleString("ko-KR");
+
+  if (hi === null) return `월 ${won(lo)}원 초과`;
+  if (lo === 0) return `월 ${won(hi)}원 이하`;
+  return `월 ${won(lo)} ~ ${won(hi)}원`;
 }
 
 /** 선택 해제 수단이 필요하다 — 라디오는 한 번 고르면 끌 수 없으므로 '선택 안 함'을 첫 칸에 둔다. */

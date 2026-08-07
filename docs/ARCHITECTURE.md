@@ -356,6 +356,7 @@ if 소관기관유형 == '중앙행정기관'  → is_nationwide = true
 else if 소관기관명이 시도명으로 시작 → region_sidos = [시도코드]
                                      region_sigungu = 시도명을 뗀 나머지 첫 토큰 (없으면 null)
 else if 기관명 '안쪽'에 지역명이 있다 → 같음  ← fallback(). 좁은 규칙만 (아래)
+else if 정책명에 시도 정식명이 있다   → region_sidos = [시도코드], region_sigungu = null
 else                              → is_nationwide = true   ← 판별 실패는 전국 취급
 ```
 
@@ -365,6 +366,10 @@ else                              → is_nationwide = true   ← 판별 실패�
 > `공공기관` 100% · `지방출자_출연기관` 82% · `지방공기업` 79.5%가 시도명으로 시작하지 않는다.
 > 기관명 안쪽 부분문자열 매칭(`region.ts`의 `fallback()`)으로 **11.3%(1,122건)까지 낮췄다.**
 > 규칙을 좁게 잡은 이유는 그 함수의 주석에 있다 — **오탐은 정책을 숨긴다.**
+>
+> 그래도 `재단법인강원인재원`처럼 **기관명이 약칭(`강원`)만 쓰는** 경우가 남는다. 이때는 정책명이
+> `2026년 강원특별자치도 …`로 정식 명칭을 쓴다. 정책명을 마지막 신호로 추가해 **22건을 회수했다**
+> (전수 확인, 오탐 0건). 시군구는 보지 않는다 — 정책명은 지역명이 본문 맥락으로 섞이기 쉽다.
 
 시도명 판별은 §2.6.1에서 도출한 16개 이름을 쓴다. 정부24 `소관기관명`이 `"서울특별시 동대문구"`·`"경기도 평택시"` 형태라 그대로 맞는다.
 
@@ -418,7 +423,7 @@ src/
     PolicyList.tsx               판정 버튼 · 판정 상태 · 페이지 내 정렬 (클라이언트)
     PolicyCard.tsx  badges.tsx (VerdictBadge · SourceBadge · CategoryBadge)
     QuoteHighlight.tsx           근거 원문 + 인용 구간 (§5.4)
-    ListControls.tsx (분야·검색·출처·전체보기)  ProfileForm.tsx  SyncButton.tsx
+    ListControls.tsx (분야·검색·스크랩)  ProfileForm.tsx  SyncButton.tsx
 supabase/
   schema.sql                     스키마 단일 진실 원천
 ```
@@ -852,7 +857,7 @@ export function locateQuote(sourceText: string, quote: string):
 │                                            │
 │ 공고 둘러보기                       [▦][≡] │  ← 타일 / 목록 (`?view=`)
 │ 분야: [일자리·창업 ✓][주거 ✓][교육][복지]…  │  ← 기본 2개만 ON (F-03)
-│ [검색____] [출처 ▾]  전체 / 스크랩          │
+│ [검색____]  □ 스크랩만 보기                  │
 │ [이 페이지 10건 판정하기] 5점 1·4점 2·3점 5·1점 2│ ← 판정 상태를 들고 있는 클라이언트 경계
 ├────────────────────────────────────────────┤
 │ 5 신청 가능 [청년] 청년월세 특별지원          │

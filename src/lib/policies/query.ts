@@ -55,7 +55,6 @@ export type ListFilters = {
   categories: Category[];
   /** 정책명 검색어 */
   q: string | null;
-  source: "youth" | "gov24" | null;
   /**
    * 스크랩한 정책 id. `null`이면 스크랩 필터를 걸지 않는다 (F-20).
    *
@@ -73,7 +72,6 @@ export function defaultFilters(): ListFilters {
     regionSigungu: null,
     categories: DEFAULT_CATEGORIES,
     q: null,
-    source: null,
     scrapPolicyIds: null,
     page: 1,
   };
@@ -83,7 +81,7 @@ export function defaultFilters(): ListFilters {
  * 1차 필터를 건 쿼리를 만든다.
  *
  * **`scope`는 사용자 설정이 아니라 두 집계의 구분이다.** `"total"`은 화면의 "전체 M건"을 세는
- * 쿼리라 **분야·나이·지역·사용자구분을 걸지 않는다**. 검색어·출처·스크랩은 사용자가 직접 건
+ * 쿼리라 **분야·나이·지역·사용자구분을 걸지 않는다**. 검색어·스크랩은 사용자가 직접 건
  * 것이라 양쪽에 똑같이 들어간다 — 그래야 "검색 결과 중 몇 건이 조건을 통과했는가"로 읽힌다.
  */
 function applyFilters(
@@ -96,7 +94,6 @@ function applyFilters(
     // %와 _는 PostgREST ilike의 와일드카드다. 사용자가 친 문자 그대로 찾도록 이스케이프한다.
     query = query.ilike("title", `%${f.q.replace(/[%_\\]/g, "\\$&")}%`);
   }
-  if (f.source) query = query.eq("source", f.source);
   // 스크랩도 사용자가 직접 건 필터다 — 전체 집계에서도 풀지 않는다
   if (f.scrapPolicyIds !== null) query = query.in("id", f.scrapPolicyIds);
 
@@ -132,7 +129,7 @@ export type ListResult = {
   rows: PolicyListRow[];
   /** 1차 필터를 통과한 전체 건수 ("코드 조건 통과 N건") */
   filteredCount: number;
-  /** 검색·출처만 적용한 건수 ("전체 M건 보기") */
+  /** 검색어·스크랩만 적용한 건수 ("전체 M건") */
   totalCount: number;
   /**
    * 조회 실패 메시지. **`null`이 아니면 건수 0을 "결과 없음"으로 읽으면 안 된다** —

@@ -26,6 +26,42 @@ export const INCOME_BRACKETS: Option[] = [
 ];
 
 /**
+ * 소득 구간이 가리키는 기준 중위소득 비율(%). 상한이 `null`이면 "초과"다.
+ *
+ * `INCOME_BRACKETS`의 라벨과 같은 숫자여야 한다 — 화면이 이 표로 금액을 계산해 라벨 옆에 적는다.
+ */
+export const INCOME_BRACKET_RATIOS: Record<string, [number, number | null]> = {
+  JA0201: [0, 50],
+  JA0202: [51, 75],
+  JA0203: [76, 100],
+  JA0204: [101, 200],
+  JA0205: [200, null],
+};
+
+/**
+ * 기준 중위소득 (월, 원)
+ *
+ * ⚠️ **해마다 바뀐다.** 중앙생활보장위원회가 7~8월에 다음 해 값을 의결하고 보건복지부가 고시한다 —
+ * 새 해가 시작되면 `MEDIAN_INCOME_YEAR`·표·출처 링크를 함께 갈아야 한다. 지금 값은 2026년 것이고,
+ * 2025-07-31 제77차 중앙생활보장위원회 의결(4인 가구 6.51% 인상, 역대 최대)이 출처다.
+ *
+ * **가구원 수마다 금액이 다른데 프로필은 가구원 수를 받지 않는다.** 그래서 한 숫자로 단정하지 않고
+ * 정부 보도자료가 쓰는 것과 같은 1인·4인 두 기준을 나란히 적는다 (`ProfileForm`).
+ */
+export const MEDIAN_INCOME_YEAR = 2026;
+
+export const MEDIAN_INCOME_MONTHLY: Record<1 | 4, number> = {
+  1: 2_564_238,
+  4: 6_494_738,
+};
+
+export const MEDIAN_INCOME_SOURCE = {
+  // 링크가 가리키는 것은 고시문이 아니라 의결 보도자료다 — '고시'라고 적으면 없는 문서를 가리킨다
+  label: "보건복지부",
+  url: "https://www.mohw.go.kr/board.es?mid=a10503000000&bid=0027&act=view&list_no=1487098",
+};
+
+/**
  * 개인상황 (JA03xx). **`JA0322`(해당사항없음)는 뺐다.**
  *
  * 정책 쪽 `JA0322`는 "이 그룹에 제한이 없다"는 뜻이라 게이트가 통과로 읽는다(§5.0). 그런데

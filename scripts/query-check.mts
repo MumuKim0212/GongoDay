@@ -57,16 +57,13 @@ check(
   dates[0]?.slice(0, 10) ?? "",
 );
 
-// 검색 · 출처
+// 검색
 const search = await fetchPolicies(db, { ...defaultFilters(), q: "청년" });
 check(
   search.rows.every((r) => r.title.includes("청년")),
   "검색어가 제목에 실제로 들어 있다",
   `${search.filteredCount}건`,
 );
-// 출처는 분야·나이·지역과 다른 층위라 `totalCount`가 "출처만 건 건수"다 (`applyFilters`의 `"total"`)
-const onlyYouth = await fetchPolicies(db, { ...defaultFilters(), source: "youth" });
-check(onlyYouth.totalCount === 2698, "출처 필터 youth → 2,698건", String(onlyYouth.totalCount));
 
 // 사용자구분이 실제로 걸리는가 (§5.0.3)
 const legalOnly = noSigungu.rows.filter(

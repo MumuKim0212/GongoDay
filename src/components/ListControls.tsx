@@ -13,12 +13,10 @@ import { CATEGORIES, CATEGORY_LABELS, type Category } from "@/lib/sources/catego
 export function ListControls({
   categories,
   q,
-  source,
   scrapsOnly,
 }: {
   categories: Category[];
   q: string | null;
-  source: string | null;
   scrapsOnly: boolean;
 }) {
   const router = useRouter();
@@ -81,17 +79,6 @@ export function ListControls({
             검색
           </button>
         </form>
-
-        <select
-          value={source ?? ""}
-          onChange={(e) => push((p) => (e.target.value ? p.set("source", e.target.value) : p.delete("source")))}
-          aria-label="출처 필터"
-          className="input w-auto"
-        >
-          <option value="">출처 전체</option>
-          <option value="youth">온통청년</option>
-          <option value="gov24">정부24</option>
-        </select>
 
         <label className="text-compact text-muted flex items-center gap-1.5">
           <input

@@ -54,7 +54,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
     regionSigungu: profile?.region_sigungu ?? null,
     categories: parseCategories(one(sp.cat), profile?.interests),
     q: one(sp.q),
-    source: one(sp.source) === "youth" ? "youth" : one(sp.source) === "gov24" ? "gov24" : null,
     page: Math.max(1, Number.parseInt(one(sp.page) ?? "1", 10) || 1),
   };
 
@@ -124,12 +123,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
         </div>
 
         <section className="mt-3">
-          <ListControls
-            categories={filters.categories}
-            q={filters.q}
-            source={filters.source}
-            scrapsOnly={scrapsOnly}
-          />
+          <ListControls categories={filters.categories} q={filters.q} scrapsOnly={scrapsOnly} />
         </section>
 
         <section className="mt-5">
@@ -154,12 +148,12 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
               title="스크랩한 정책이 없습니다"
               body="정책 상세 화면에서 ☆ 스크랩을 누르면 여기에 모입니다."
             />
-          ) : filters.q || filters.source ? (
-            // **검색·출처가 걸려 있으면 '수집된 정책이 없다'고 말하면 안 된다.** `totalCount`는
+          ) : filters.q ? (
+            // **검색어가 걸려 있으면 '수집된 정책이 없다'고 말하면 안 된다.** `totalCount`는
             // 검색어까지 반영한 값이라, 오타 하나로 "데이터가 없으니 갱신하라"는 거짓 안내가 뜬다 (§7).
             <EmptyState
               title="검색 결과가 없습니다"
-              body="검색어를 지우거나 출처 필터를 '전체'로 바꿔 보세요."
+              body="검색어를 지우거나 다른 말로 바꿔 보세요."
             />
           ) : totalCount === 0 ? (
             <EmptyState

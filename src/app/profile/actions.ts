@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 import {
   BIRTH_YEAR_MIN,
@@ -43,7 +44,10 @@ export async function saveProfile(_prev: SaveState, formData: FormData): Promise
   if (birthText !== "") {
     const n = Number.parseInt(birthText, 10);
     if (!/^\d{4}$/.test(birthText) || n < BIRTH_YEAR_MIN || n > thisYear) {
-      return { ok: false, message: `생년은 ${BIRTH_YEAR_MIN}~${thisYear} 사이 네 자리로 입력해 주세요.` };
+      return {
+        ok: false,
+        message: `출생년도는 ${BIRTH_YEAR_MIN}~${thisYear} 사이 네 자리로 입력해 주세요.`,
+      };
     }
     birthYear = n;
   }
@@ -87,7 +91,13 @@ export async function saveProfile(_prev: SaveState, formData: FormData): Promise
   // 이 한 줄이 캐시에 남은 화면을 모두 버린다. 서버 쪽은 전부 `force-dynamic`이라 버릴 것이 없다.
   revalidatePath("/", "layout");
 
-  return { ok: true, message: "저장했습니다. 목록이 이 조건으로 좁혀집니다." };
+  // **성공하면 목록으로 돌려보낸다.** "목록이 이 조건으로 좁혀집니다"라고 알리고 화면은 폼에
+  // 남겨두면, 좁혀진 목록을 보려면 사용자가 한 번 더 움직여야 한다 — 저장의 결과가 곧 목록이다.
+  //
+  // `revalidatePath`가 **먼저** 와야 한다. `redirect`는 제어 흐름 예외를 던져 뒤 코드가 실행되지
+  // 않으므로(next `redirect` 문서 §Behavior), 순서가 바뀌면 캐시를 안 버린 채 옛 목록으로 간다.
+  // 실패는 위에서 이미 돌아갔으므로 이 아래로 오는 것은 저장에 성공한 경우뿐이다.
+  redirect("/");
 }
 
 const codes = (options: Option[]) => options.map((o) => o.code);
