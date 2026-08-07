@@ -1,0 +1,49 @@
+name: 검사
+
+# 지금까지 자동으로 도는 것은 수집(sync.yml)뿐이었다 — lint·타입·판정 규칙을 아무도 안 봤다.
+#
+# **`npm test`가 여기 있는 이유**: 검사 스크립트 13개 중 `verdict-check.mts`만 DB도 화면도
+# 네트워크도 필요 없다(순수 함수 68항목). 나머지는 실서비스와 브라우저가 있어야 돌아서
+# CI에 올릴 수 없다. 게이트는 **조용히 틀리는 종류**라 화면에서 구별되지 않으므로
+# (그 스크립트 헤더가 직접 적어둔 말이다) 이 한 줄이 회귀를 잡는 유일한 자동 장치다.
+#
+# **`next build`는 넣지 않는다.** `lib/supabase/env.ts`가 `NEXT_PUBLIC_SUPABASE_*`를 모듈
+# 로드 시점에 요구해 시크릿 없이는 못 돈다. 그리고 push마다 Vercel이 이미 빌드하므로
+# 여기서 또 하면 같은 실패를 두 번 알리는 것뿐이다. 타입 오류는 typecheck가 먼저 잡는다.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 같은 브랜치에 연달아 밀면 앞 실행은 버린다 — 마지막 커밋의 결과만 의미가 있다.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # 셋 다 독립이라 하나가 실패해도 나머지 결과를 같이 보고 싶다.
+      # `if: always()`가 없으면 lint에서 끊겨 타입·판정 결과를 다음 푸시까지 모른다.
+      - name: lint
+        run: npm run lint
+
+      - name: typecheck
+        if: always()
+        run: npm run typecheck
+
+      - name: 판정 규칙 (게이트 · 인용 검증 · 서명 · 점수)
+        if: always()
+        run: npm test
