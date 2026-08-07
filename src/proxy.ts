@@ -39,7 +39,15 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   // 첫 방문이면 익명 세션을 만든다. 서버에서 만들어야 첫 렌더부터 auth.uid()가 잡힌다.
-  if (!user) {
+  //
+  // **화면 요청일 때만이다.** 쿠키를 들고 오지 않는 요청마다 만들면 `auth.users`가 무한히 늘어난다.
+  // 확실한 누수가 우리 자동화였다 — `.github/workflows/sync.yml`의 크론이 매시간 두 번
+  // `curl`로 `/api/sync`를 치는데 쿠키가 없으니 정각마다 익명 유저가 둘씩 생겼다(월 1,400여 개).
+  // 세션이 갱신되는 것은 여전히 모든 경로에서다(위 `getUser()`) — **여기서 막는 것은 생성뿐이다.**
+  //
+  // API 경로에서 새 세션을 만들어봐야 쓸 데도 없다. `/api/verdicts`는 프로필이 있어야 판정하는데
+  // 방금 만든 익명 유저에게는 프로필 행이 없어 어차피 400으로 돌아간다.
+  if (!user && !request.nextUrl.pathname.startsWith("/api/")) {
     await supabase.auth.signInAnonymously();
   }
 
@@ -49,6 +57,10 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     // 정적 파일과 이미지 최적화 요청은 세션이 필요 없다.
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    //
+    // **`robots.txt`를 빼는 것이 특히 중요하다.** 그 파일을 읽는 것은 크롤러뿐인데, 매처에
+    // 걸려 있으면 **크롤 범위를 확인하러 온 요청 자체가 익명 유저를 하나 만든다.** 훑을 표면을
+    // 줄이려고 둔 파일이 정반대로 작동하는 셈이다.
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

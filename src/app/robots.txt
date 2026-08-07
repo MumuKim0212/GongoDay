@@ -1,0 +1,14 @@
+# 크롤러가 훑는 만큼 익명 세션이 생긴다 (proxy.ts) — 훑을 표면을 랜딩 하나로 줄인다.
+#
+# /policies/*는 13,662개이고 전부 force-dynamic이다. 통째로 크롤링되면 익명 유저가 그 수만큼
+# 생기고 Supabase도 같은 횟수로 맞는다. 내용도 공공기관 원문을 옮겨온 것이라 색인 가치가 낮다.
+# /profile은 사용자별 폼이고, /admin은 ADMIN_SLUG 은닉이 전부라(lib/admin/access.ts)
+# 주소가 색인되는 순간 그 은닉이 끝난다.
+#
+# 랜딩(/)만 열어둔다 — 서비스가 무엇인지는 거기 한 문장에 다 있다 (F-32).
+
+User-Agent: *
+Disallow: /policies/
+Disallow: /profile
+Disallow: /api/
+Disallow: /admin
