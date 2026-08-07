@@ -44,9 +44,19 @@
 
 ```
 @supabase/ssr  +  src/proxy.ts (세션 쿠키 갱신 + 첫 방문 익명 로그인)
-   ├─ proxy: 세션이 없으면 signInAnonymously() → 쿠키에 세션 기록
+   ├─ proxy: 세션이 없으면 signInAnonymously() → 쿠키에 세션 기록  ← 화면 요청에서만
    └─ 서버 컴포넌트 / 라우트 핸들러: 쿠키에서 세션 복원 → auth.uid()
 ```
+
+> ⚠️ **생성은 화면 요청에서만 한다 — 갱신은 모든 경로에서다.** 쿠키를 안 들고 오는 요청마다
+> 세션을 만들면 `auth.users`가 끝없이 늘어난다. 확실한 누수가 우리 자동화였다: `sync.yml`의
+> 크론이 매시간 두 번 `curl`로 `/api/sync`를 치는데 쿠키가 없어 **정각마다 익명 유저가 둘씩**
+> 생겼다(월 1,400여 개). `/api/`에서 새 세션을 만들어봐야 쓸 데도 없다 — `/api/verdicts`는
+> 프로필이 있어야 판정하는데 방금 만든 유저에게는 프로필 행이 없다.
+>
+> 크롤러도 같은 성질이라 `app/robots.txt`가 훑을 표면을 랜딩 하나로 줄인다. `/policies/*`는
+> 13,662개가 전부 `force-dynamic`이라, 통째로 크롤링되면 그 수만큼 익명 유저가 생기고
+> Supabase도 같은 횟수로 맞는다.
 
 > **Next 16에서 `middleware.ts`가 `proxy.ts`로 이름이 바뀌었다** (export 이름도 `proxy`). 동작은 같고, 기본 런타임이 Node.js다.
 >
@@ -402,14 +412,18 @@ order by 1;
 src/
   proxy.ts                       세션 쿠키 갱신 + 익명 로그인 (§1.1) — 빠뜨리면 조용히 망가진다
   app/
+    layout.tsx  globals.css      루트 레이아웃 · 토큰과 컴포넌트 레이어 (DESIGN.md §2.6)
+    icon.svg  robots.txt         파비콘 · 크롤 범위 (§1.1의 익명 세션 증식과 한 벌이다)
     page.tsx                     목록 (홈) — 서버 컴포넌트
     policies/[id]/page.tsx       상세 — 근거 원문 + 하이라이트 + 신청 안내
     policies/[id]/actions.ts     스크랩 토글 (Server Action)
     profile/page.tsx             프로필 설정
     profile/actions.ts           프로필 저장 (Server Action)
+    admin/[[...slug]]/page.tsx   운영 현황 — ADMIN_SLUG 은닉 (§8). 사용자 화면이 아니다
+    admin/[[...slug]]/actions.ts 수동 갱신 (Server Action) — 라우트를 안 거친다 (§4.3)
     api/
-      sync/route.ts              수집 (service_role)
-      verdicts/route.ts          배치 판정
+      sync/route.ts              수집 트리거 — CRON_SECRET 필요 (§4.3)
+      verdicts/route.ts          판정 — NDJSON 스트림 (§5)
   lib/
     log.ts                         서버 로그 — 한 줄에 JSON 하나, `도메인.사건` 이름 규칙
     supabase/
@@ -418,26 +432,47 @@ src/
       youth.ts                   fetchPage() + toPolicy()
       gov24.ts                   fetchPage() + toPolicy()  (2개 엔드포인트 조인)
       region.ts                  시도/시군구 정규화 — 두 소스 공용
+      regions.generated.ts       시군구 목록 — 수집 데이터에서 굽는다. 손으로 고치지 않는다 (R13)
       category.ts                분야 정규화 (§2.1.4)
+      types.ts                   PolicyInsert + 공용 파서 (age()가 0을 null로 읽는다)
+    sync/
+      run.ts                     수집 1회분 — 크론과 운영 버튼이 같이 부른다 (§4)
+      last-full.ts               소스별 '마지막 완주' 시각 (목록 푸터)
+    policies/
+      query.ts                   목록 SQL 1차 필터 (§5.0.1). 상수는 gate.ts에서 가져온다
+      view.ts                    타일/목록 보기 파싱 — 기본값이 한 곳에 있어야 한다 (§6.1)
     verdict/
-      gate.ts                    코드 게이트 (순수 함수)
+      gate.ts                    코드 게이트 (순수 함수). AGE_SLACK·INDIVIDUAL_AUDIENCES의 출처
       normalize.ts               공백 정규화 + 원본 인덱스 맵 (§5.4)
-      prompt.ts                  buildSourceText() + 시스템 프롬프트
+      prompt.ts                  buildSourceText() + buildProfileText() + 시스템 프롬프트
       gemini.ts                  Gemini 호출 (never throws)
       validate.ts                3단 검증
-      signature.ts               profileSignature()
+      signature.ts               profileSignature() (§5.5)
+      score.ts                   5단계 점수 — 확인 항목 수에서 유도한다 (§5.6)
     profile/
       schema.ts                  선택지 상수 (정부24 코드 ↔ 한글 라벨)
+    admin/
+      access.ts                  ADMIN_SLUG 판정 — 화면과 서버 액션이 각각 부른다
+      stats.ts                   집계 조회. 개별 사용자의 프로필·판정은 읽지 않는다
   components/
-    PolicyList.tsx               판정 버튼 · 판정 상태 · 페이지 내 정렬 (클라이언트)
-    PolicyCard.tsx  badges.tsx (VerdictBadge · SourceBadge · CategoryBadge)
+    PolicyList.tsx               자동 판정 · 판정 상태 · 페이지 내 정렬 (클라이언트)
+    PolicyCard.tsx  PolicyTile.tsx   목록 보기 / 타일 보기 (DESIGN.md §5.1)
+    badges.tsx                   ScoreBadge · SourceKicker · CategoryBadge · VerdictBadgeSkeleton
+    CategoryIcon.tsx             타일의 분야 선화 9종 — 공고에는 이미지가 없다
     QuoteHighlight.tsx           근거 원문 + 인용 구간 (§5.4)
-    ListControls.tsx (분야·검색·스크랩)  ProfileForm.tsx  SyncButton.tsx
+    ViewToggle.tsx               타일↔목록. pushState라 서버를 다시 부르지 않는다 (§6.1)
+    BackToList.tsx               떠나온 자리로 돌아간다 — `/`가 아니다 (DESIGN.md §5.2)
+    ListControls.tsx (분야·검색·스크랩)  ProfileForm.tsx  SyncButton.tsx  AdminTabs.tsx
+scripts/
+  verdict-check.mts              순수 함수 68항목. **DB도 네트워크도 없다 — CI가 이것만 돌린다**
+  그 밖 12개                      실서비스·브라우저가 있어야 도는 검사와 실측 (§5.1.2, §5.0.2 등)
 supabase/
   schema.sql                     스키마 단일 진실 원천
 ```
 
 **`region.ts`·`category.ts`를 `sources/` 아래 둔 이유**: 두 소스가 공유하는 정규화이지 판정 로직이 아니다. 소스가 늘면 여기에 매핑만 추가한다.
+
+**`lib/policies/query.ts`가 `verdict/` 밖에 있는 이유**: 목록을 좁히는 SQL이지 판정이 아니다. 다만 같은 규칙을 쓰므로 **상수는 `gate.ts`에서 import한다** — 규칙의 형태가 둘로 갈리는 것(§5.0.1의 의도된 중복)과 값이 둘로 갈리는 것은 다르다. 뒤엣것은 한쪽만 고쳐도 타입이 통과해 조용히 어긋난다.
 
 ---
 
@@ -660,6 +695,8 @@ where (:sido is null
 ~~**"전체 보기" 토글을 반드시 남긴다.**~~ **뺐다** (PRD F-01b). 필터를 풀고 싶으면 걸어둔 것을 끄면 되고, 조건과 무관한 전체 목록을 찾는 사용자는 없다는 판단이다. **대신 이 SQL 필터가 되돌릴 수 없는 층이 됐다** — 분야는 칩으로 풀리지만 나이·지역은 프로필을 고쳐야 하고, 사용자구분은 손잡이가 없다. 잘못 거른 정책이 화면에서 사라지는 경로가 여기 하나 남는다.
 
 > **의도된 중복**: 같은 규칙이 `gate.ts`(라벨링)와 목록 SQL(필터링) 두 곳에 있다. 하나로 합치려면 DB 함수나 뷰가 필요하다. **규칙을 바꿀 때는 두 곳을 같이 바꾼다.**
+>
+> **다만 값은 한 곳이다.** `AGE_SLACK`·`INDIVIDUAL_AUDIENCES`를 `gate.ts`가 export하고 `query.ts`가 import한다. 규칙의 **형태**가 갈리는 것(SQL ↔ 함수)은 어쩔 수 없지만 **값**까지 복사해 두면 한쪽만 고쳐도 타입이 통과해 목록과 판정이 조용히 어긋난다 — 컴파일러가 잡아줄 수 있는 쪽은 잡게 둔다.
 
 ### 5.1 프롬프트 (`lib/verdict/prompt.ts`)
 
@@ -868,7 +905,9 @@ p=t23s60|r=1euan9e
 
 ---
 
-## 6. 화면 구조 (3화면)
+## 6. 화면 구조 (사용자 3화면 + 운영 1화면)
+
+사용자 화면은 목록 · 상세 · 프로필 셋이다. 여기에 운영 화면 `/admin`이 있다 — `ADMIN_SLUG`로 가리고(§8), 집계만 읽으며 개별 사용자의 프로필·판정은 조회하지 않는다. **DESIGN.md의 적용 범위 밖이다** (DESIGN §5.4).
 
 ### 6.1 목록 `/`
 
