@@ -7,6 +7,8 @@
  *
  * 모델은 `gemini-3.5-flash`로 실측 확정했다 (§5.1.2) — 인용검증 100% · 결정론 100% · p95 5.0초.
  */
+import { errorMessage, log } from "@/lib/log";
+
 import { SYSTEM_PROMPT, buildUserText } from "./prompt";
 
 /** 5개 모델 실측으로 정했다. 바꾸면 §5.1.2를 다시 재야 한다 — `scripts/model-eval.mts` */
@@ -44,11 +46,19 @@ type GenerateContentResponse = {
  *
  * 반환값을 검증하지 않는다 — 그건 `validateVerdict`의 일이고, 그래야 "모델 출력을 신뢰하지 않는다"가
  * 한 곳에서만 구현된다.
+ *
+ * ⚠️ **`null`을 돌려줄 때는 반드시 이유를 로그에 남긴다.** 사용자에게는 다섯 갈래가 전부
+ * "판정하지 못했습니다" 한 문장으로 뭉개져 나가므로, 키가 없는 것인지·쿼터가 찬 것인지·
+ * 느려서 끊긴 것인지 밖에서 구분할 방법이 여기 말고는 없다.
  */
 export async function callGemini(profileText: string, sourceText: string): Promise<unknown | null> {
   // env.ts와 달리 여기서는 throw하지 않는다. 키가 없으면 전건 '애매'로 흡수되는 편이 낫다.
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) {
+    // 설정 누락은 재시도로 낫지 않는다. 사람이 손대야 하므로 유일하게 error다.
+    log.error("gemini.failed", { reason: "no_api_key" });
+    return null;
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -71,15 +81,29 @@ export async function callGemini(profileText: string, sourceText: string): Promi
       }),
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // 429(쿼터)와 5xx(모델 장애)를 가르는 건 status뿐이다. 본문은 키가 섞일 수 있어 넣지 않는다.
+      log.warn("gemini.failed", { reason: "http_error", status: res.status });
+      return null;
+    }
 
     const body = (await res.json()) as GenerateContentResponse;
     const text = body.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (typeof text !== "string") return null;
+    if (typeof text !== "string") {
+      // 안전필터에 걸리면 candidates가 비어서 온다 — 200이라 위에서 안 걸린다.
+      log.warn("gemini.failed", { reason: "empty_body" });
+      return null;
+    }
 
     return JSON.parse(text);
-  } catch {
-    // 타임아웃(abort) · 네트워크 오류 · JSON 파싱 실패가 모두 여기로 온다
+  } catch (e) {
+    // 타임아웃(abort) · 네트워크 오류 · JSON 파싱 실패가 모두 여기로 온다.
+    // 타임아웃만 따로 세는 이유는 그것만 대책이 다르기 때문이다 — TIMEOUT_MS나 병렬 수를 조정한다.
+    const timedOut = e instanceof Error && e.name === "AbortError";
+    log.warn("gemini.failed", {
+      reason: timedOut ? "timeout" : "network_or_parse",
+      message: errorMessage(e),
+    });
     return null;
   } finally {
     clearTimeout(timer);

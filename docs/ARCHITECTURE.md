@@ -391,6 +391,7 @@ src/
       sync/route.ts              수집 (service_role)
       verdicts/route.ts          배치 판정
   lib/
+    log.ts                         서버 로그 — 한 줄에 JSON 하나, `도메인.사건` 이름 규칙
     supabase/
       client.ts  server.ts  admin.ts  env.ts
     sources/

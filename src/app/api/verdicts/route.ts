@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { log } from "@/lib/log";
 import { PAGE_SIZE } from "@/lib/policies/query";
 import { createClient } from "@/lib/supabase/server";
 import { checkGate, type PolicyConditions, type Profile } from "@/lib/verdict/gate";
@@ -54,6 +55,7 @@ const EMPTY_PROFILE_REASON = "판정에 쓸 조건이 비어 있습니다. 생�
 const AI_FAILED_REASON = "판정하지 못했습니다. 다시 시도해 주세요.";
 
 export async function POST(req: Request) {
+  const startedAt = Date.now();
   const body: unknown = await req.json().catch(() => ({}));
   const requested = Array.isArray((body as { policyIds?: unknown }).policyIds)
     ? ((body as { policyIds: unknown[] }).policyIds.filter((v): v is string => typeof v === "string"))
@@ -71,6 +73,8 @@ export async function POST(req: Request) {
 
   // 익명 세션 생성 실패 (§7). 목록은 계속 보이지만 판정은 저장할 곳이 없다.
   if (!user) {
+    // 이게 늘어나면 proxy.ts의 익명 로그인이 깨진 것이다 (§1.1) — 목록은 멀쩡해 보여서 늦게 드러난다.
+    log.warn("verdicts.no_session");
     return NextResponse.json(
       { error: "세션이 없어 판정할 수 없습니다. 새로고침한 뒤 다시 시도해 주세요." },
       { status: 401 },
@@ -86,6 +90,7 @@ export async function POST(req: Request) {
   // ⚠️ **조회 실패를 '조건 없음'으로 흘리면 안 된다.** 빈 프로필은 게이트를 전건 통과시키므로
   // 실패가 "아무 조건도 없는 사용자"로 둔갑해 엉뚱한 판정이 캐시에 저장된다 (작업 4의 빈 폼 사고와 같은 형태).
   if (profileError) {
+    log.error("verdicts.profile_failed", { message: profileError.message });
     return NextResponse.json(
       { error: "내 조건을 읽지 못했습니다. 잠시 후 다시 시도해 주세요." },
       { status: 500 },
@@ -105,6 +110,7 @@ export async function POST(req: Request) {
     .in("id", policyIds);
 
   if (policyError) {
+    log.error("verdicts.policies_failed", { count: policyIds.length, message: policyError.message });
     return NextResponse.json(
       { error: "정책을 읽지 못했습니다. 잠시 후 다시 시도해 주세요." },
       { status: 500 },
@@ -228,8 +234,17 @@ export async function POST(req: Request) {
       { onConflict: "policy_id,user_id,profile_signature" },
     );
     // 저장 실패가 판정 결과를 못 쓰게 만들 이유는 없다. 화면엔 그대로 보여주고 다음 클릭에 다시 시도된다.
-    if (error) stats.save_error = error.message;
+    if (error) {
+      // 사용자는 판정을 정상으로 받는다. **다시 눌러도 캐시가 비어 또 부른다**는 게 진짜 비용이라
+      // 화면에 안 보이는 이 실패를 로그로 세워둔다.
+      stats.save_error = error.message;
+      log.error("verdicts.save_failed", { count: toSave.length, message: error.message });
+    }
   }
+
+  // 호출 비용 장부 (PRD §7.7). `ai_called`가 0인지를 완료 판정 1·4가 보고,
+  // `cached`와의 비율이 캐시가 실제로 듣고 있는지를 말해준다.
+  log.info("verdicts.batch", { ...stats, durationMs: Date.now() - startedAt });
 
   return NextResponse.json({ verdicts, stats });
 }

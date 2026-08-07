@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { log } from "@/lib/log";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -25,14 +26,19 @@ export async function toggleScrap(formData: FormData): Promise<void> {
 
   // 쓰기가 실패하면 버튼 상태가 그대로 남는다 — 거짓으로 "스크랩됨"이 되지 않으므로 그대로 둔다.
   // 화면이 사실을 말하는 쪽이라 별도의 오류 표시를 위해 클라이언트 상태를 들이지 않는다.
+  let result;
   if (on) {
-    await supabase.from("scraps").delete().eq("user_id", user.id).eq("policy_id", policyId);
+    result = await supabase.from("scraps").delete().eq("user_id", user.id).eq("policy_id", policyId);
   } else {
     // 이미 있으면 그대로 둔다 — 두 번 눌러 들어온 요청이 오류가 되면 안 된다.
-    await supabase
+    result = await supabase
       .from("scraps")
       .upsert({ user_id: user.id, policy_id: policyId }, { onConflict: "user_id,policy_id" });
   }
+
+  // 화면에 아무 표시도 하지 않기로 한 실패다(위 주석). 그래서 **로그가 유일한 흔적이다** —
+  // "스크랩이 안 눌린다"는 제보가 와도 여기가 비어 있으면 확인할 방법이 없다.
+  if (result.error) log.error("scrap.write_failed", { scrapped: on, message: result.error.message });
 
   revalidatePath(`/policies/${policyId}`);
 

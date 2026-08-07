@@ -1,6 +1,7 @@
 "use server";
 
 import { isAdminAllowed } from "@/lib/admin/access";
+import { log } from "@/lib/log";
 import { isSourceName, runSync, syncRejected, type SyncResult } from "@/lib/sync/run";
 
 /**
@@ -14,8 +15,15 @@ import { isSourceName, runSync, syncRejected, type SyncResult } from "@/lib/sync
  */
 export async function syncAction(slug: string[] | undefined, source: string): Promise<SyncResult> {
   // 화면이 이미 slug로 걸러지지만 **서버 액션은 화면과 따로 호출될 수 있다.** 여기서 다시 본다.
-  if (!isAdminAllowed(slug)) return syncRejected(source, "권한이 없습니다.");
-  if (!isSourceName(source)) return syncRejected(source, "source는 youth 또는 gov24");
+  // 그 우회 호출이 실제로 오는지는 이 로그로만 알 수 있다 — 화면에는 흔적이 남지 않는다.
+  if (!isAdminAllowed(slug)) {
+    log.warn("sync.rejected", { reason: "forbidden", trigger: "admin", source });
+    return syncRejected(source, "권한이 없습니다.");
+  }
+  if (!isSourceName(source)) {
+    log.warn("sync.rejected", { reason: "bad_source", trigger: "admin", source });
+    return syncRejected(source, "source는 youth 또는 gov24");
+  }
 
-  return runSync(source);
+  return runSync(source, "admin");
 }

@@ -13,6 +13,7 @@ import {
   SITUATIONS,
   type Option,
 } from "@/lib/profile/schema";
+import { log } from "@/lib/log";
 import { CATEGORIES } from "@/lib/sources/category";
 import { createClient } from "@/lib/supabase/server";
 
@@ -70,6 +71,9 @@ export async function saveProfile(_prev: SaveState, formData: FormData): Promise
   });
 
   if (error) {
+    // 조건이 없으면 목록도 판정도 못 쓴다 — 서비스가 통째로 멈추는 실패라 error다.
+    // 값 자체는 넣지 않는다: 생년·지역은 개인정보고, 무엇이 막혔는지는 메시지만으로 충분하다.
+    log.error("profile.save_failed", { message: error.message });
     return { ok: false, message: `저장하지 못했습니다: ${error.message}` };
   }
 

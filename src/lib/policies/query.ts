@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { log } from "@/lib/log";
 import { ageFromBirthYear } from "@/lib/verdict/gate";
 import { DEFAULT_CATEGORIES, type Category } from "@/lib/sources/category";
 
@@ -160,7 +161,9 @@ export async function fetchPolicies(
       supabase.from("policies").select("id", { count: "exact", head: true }),
       { ...f, showAll: true },
     );
-    return { rows: [], filteredCount: 0, totalCount: total.count ?? 0, error: total.error?.message ?? null };
+    const message: string | null = total.error?.message ?? null;
+    if (message) log.error("policies.query_failed", { where: "total", message });
+    return { rows: [], filteredCount: 0, totalCount: total.count ?? 0, error: message };
   }
 
   const [filtered, total] = await Promise.all([
@@ -174,10 +177,15 @@ export async function fetchPolicies(
     }),
   ]);
 
+  // 화면은 이 실패를 "잠시 후 새로고침해 주세요"로만 말한다 (§7 — 어떤 실패도 화면을 비우지 않는다).
+  // 무엇이 실패했는지는 서버에만 남길 수 있다.
+  const message: string | null = filtered.error?.message ?? total.error?.message ?? null;
+  if (message) log.error("policies.query_failed", { where: "list", page: f.page, message });
+
   return {
     rows: (filtered.data ?? []) as unknown as PolicyListRow[],
     filteredCount: filtered.count ?? 0,
     totalCount: total.count ?? 0,
-    error: filtered.error?.message ?? total.error?.message ?? null,
+    error: message,
   };
 }
