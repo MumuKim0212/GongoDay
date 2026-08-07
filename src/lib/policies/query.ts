@@ -127,7 +127,7 @@ function applyFilters(
 
 export type ListResult = {
   rows: PolicyListRow[];
-  /** 1차 필터를 통과한 전체 건수 ("코드 조건 통과 N건") */
+  /** 1차 필터를 통과한 전체 건수 ("1차 조건 통과 N건") */
   filteredCount: number;
   /** 검색어·스크랩만 적용한 건수 ("전체 M건") */
   totalCount: number;

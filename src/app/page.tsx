@@ -111,7 +111,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
         <p className="text-small text-muted mt-4 text-center">
           <span className="tag tag-accent tabular-nums">
             {/* "내 조건에 맞는"이라고 쓰면 AI 판정을 마친 것처럼 읽힌다 (§6.1) */}
-            코드 조건 통과 <strong>{filteredCount.toLocaleString()}</strong>건 / 전체{" "}
+            1차 조건 통과 <strong>{filteredCount.toLocaleString()}</strong>건 / 전체{" "}
             {totalCount.toLocaleString()}건
           </span>
           {!profile ? <span className="ml-2">조건을 넣으면 더 좁혀집니다</span> : null}

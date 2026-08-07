@@ -126,8 +126,8 @@ check(
   "프로필이 없으면 판정 버튼 대신 안내 (F-15)",
 );
 check(
-  (await page.getByText("코드 조건 통과").count()) === 1,
-  '"코드 조건 통과 N건"이라고 쓴다 — AI 판정을 마친 것처럼 읽히면 안 된다',
+  (await page.getByText("1차 조건 통과").count()) === 1,
+  '"1차 조건 통과 N건"이라고 쓴다 — AI 판정을 마친 것처럼 읽히면 안 된다',
 );
 check((await visitor.cookies()).some((c) => c.name.startsWith("sb-")), "첫 요청에서 익명 세션 쿠키가 발급된다");
 
@@ -336,7 +336,7 @@ function listFiles(dir: string): string[] {
   });
 }
 
-/** "코드 조건 통과 N건" 숫자 */
+/** "1차 조건 통과 N건" 숫자 */
 async function countText(p: Page): Promise<number> {
   const text = await p.locator("main > p").filter({ hasText: /통과|전체/ }).first().innerText();
   return Number((/([\d,]+)/.exec(text)?.[1] ?? "0").replace(/,/g, ""));

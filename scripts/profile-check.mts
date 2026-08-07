@@ -137,7 +137,7 @@ check(
 
 // 저장한 조건이 실제로 목록을 좁히는가 — scripts/query-check.mts가 SQL로 잰 값과 같아야 한다
 await a.goto(base, { waitUntil: "networkidle" });
-const listed = await a.locator("main > p").filter({ hasText: "코드 조건 통과" }).first().innerText();
+const listed = await a.locator("main > p").filter({ hasText: "1차 조건 통과" }).first().innerText();
 // 573 → 569: 정책명으로 지역을 회수하면서 전국 취급이던 4건이 타 지역 전용이 됐다 (커밋 939cc7b).
 // `query-check.mts`가 SQL로 재는 값과 같은 수여야 한다 — 한쪽만 고치면 다시 어긋난다.
 check(listed.includes("569"), "목록이 저장된 조건으로 좁혀진다 (28세·서울·동대문구 → 569건)", listed.trim());

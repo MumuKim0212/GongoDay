@@ -51,12 +51,7 @@ export default async function AdminPage({ params }: PageProps<"/admin/[[...slug]
 
       <p className="mt-3 rounded bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900 dark:text-gray-400">
         이 화면은 <strong>집계 건수만</strong> 읽습니다 — 개별 사용자의 프로필·판정 내용은 조회하지 않습니다.
-        {locked ? (
-          <>
-            {" "}
-            지금은 <code>/admin/&lt;ADMIN_SLUG&gt;</code> 한 경로만 열리고 그 외에는 404입니다.
-          </>
-        ) : (
+        {locked ? null : (
           <>
             {" "}
             <code>ADMIN_SLUG</code>가 비어 있어 <strong>주소를 아는 누구나</strong> 열 수 있습니다. 잠그려면 그 값을
