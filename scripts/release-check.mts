@@ -26,13 +26,42 @@ const fail: string[] = [];
 const check = (ok: boolean, label: string, detail = "") =>
   (ok ? pass : fail).push(`${label}${detail ? ` — ${detail}` : ""}`);
 
+const envLocal = fs.readFileSync(path.join(repoRoot, ".env.local"), "utf8");
+const envValue = (name: string) => new RegExp(`^${name}=(.+)$`, "m").exec(envLocal)?.[1]?.trim() ?? "";
+
+/**
+ * 지정한 정책들의 저장된 판정을 지운다.
+ *
+ * ⚠️ **판정 캐시가 사용자별에서 조건별로 바뀌면서 필요해졌다** (§2.3). 쿠키 없는 새 창으로
+ * 시작해도 같은 조건이면 이미 만들어져 있는 판정이 그대로 걸려, 아래 '스켈레톤이 보인다'가
+ * 잴 것이 없어진다. 지워지는 것은 언제든 다시 만들어지는 캐시뿐이다.
+ */
+async function resetVerdicts(policyIds: string[]) {
+  const key = envValue("SUPABASE_SERVICE_ROLE_KEY");
+  const res = await fetch(
+    `${envValue("NEXT_PUBLIC_SUPABASE_URL")}/rest/v1/verdicts?policy_id=in.(${policyIds.join(",")})`,
+    { method: "DELETE", headers: { apikey: key, Authorization: `Bearer ${key}` } },
+  );
+  if (!res.ok) throw new Error(`판정 캐시 초기화 실패: ${res.status} ${await res.text()}`);
+}
+
 /**
  * 선택 칩을 켠다. **체크박스를 직접 누를 수 없다** — `.chip input`이 `opacity:0`에 0×0이라
  * (globals.css §5.3) Playwright가 "보이지 않음"·"뷰포트 밖"으로 막는다. 사용자가 실제로
  * 누르는 것도 감싼 `<label>`이므로 그쪽을 누른다.
+ *
+ * 라벨 클릭은 토글이라 `.check()`처럼 멱등하지 않다. 이 검사는 쿠키 없는 컨텍스트로 시작해
+ * 늘 빈 프로필이지만, 세 스크립트가 같은 뜻으로 읽히도록 여기서도 켜져 있으면 둔다.
  */
-const chip = (page: Page, group: string, label: string) =>
-  page.getByRole("group", { name: group }).locator("label").filter({ hasText: label }).first().click();
+const chip = async (page: Page, group: string, label: string) => {
+  const box = page
+    .getByRole("group", { name: group })
+    .locator("label")
+    .filter({ hasText: new RegExp(`^${label}$`) })
+    .first();
+  if (await box.locator("input").isChecked()) return;
+  await box.click();
+};
 
 /** 프로필 저장은 목록으로 리다이렉트한다 (`app/profile/actions.ts`) */
 async function saveProfile(page: Page) {
@@ -52,6 +81,10 @@ async function waitForJudged(page: Page) {
     .getByRole("status", { name: "판정 중" })
     .first()
     .waitFor({ state: "detached", timeout: 60_000 });
+  // ⚠️ **스켈레톤만 보면 이르다.** 스켈레톤은 카드마다 판정이 닿는 순간 걷히는데, 정렬은
+  // 스트림이 닫힐 때 한 번에 적용된다 (§6.1). 그 사이에 읽으면 정렬 직전의 순서를 읽는다.
+  // `판정 중…`이 사라지는 렌더가 곧 정렬이 적용되는 렌더다 — 같은 `finally`에서 함께 바뀐다.
+  await page.getByText("판정 중…").waitFor({ state: "detached", timeout: 60_000 });
 }
 
 const browser = await chromium.launch();
@@ -146,9 +179,20 @@ await saveProfile(page);
 check((await countText(page)) < afterBirth, "지역까지 채우면 더 좁혀진다", `${afterBirth} → ${await countText(page)}`);
 
 // ── 4. 판정 — 배지 · 스켈레톤 · 정렬 · 코드/AI 구분 ────────────────────
-// 판정 중에는 배지 자리에 스켈레톤이 선다 (§7). 자동 판정이 도는 중에 세야 한다 —
-// 위에서 프로필을 저장하고 막 돌아왔으므로 이 페이지의 판정은 아직 캐시에 없다.
-const skeletons = await page.getByRole("status", { name: "판정 중" }).count();
+// **캐시를 먼저 비운다.** 지우기 전에 방금 화면이 띄운 자동 판정이 끝나기를 기다린다 —
+// 날아가는 중에 지우면 지운 뒤에 저장이 도착해 캐시가 되살아난다.
+await waitForJudged(page);
+const pageIds = await page.locator('article a[href^="/policies/"]').evaluateAll((els) =>
+  els.map((e) => (e as HTMLAnchorElement).getAttribute("href")!.replace("/policies/", "")),
+);
+await resetVerdicts(pageIds);
+
+// 판정 중에는 배지 자리에 스켈레톤이 선다 (§7). **`networkidle`로 열면 안 된다** — 판정 요청이
+// 네트워크를 붙잡고 있어 그게 끝난 뒤에 돌아오고, 그때는 스켈레톤이 이미 걷혔다.
+const skeleton = page.getByRole("status", { name: "판정 중" });
+await page.goto(base, { waitUntil: "domcontentloaded" });
+await skeleton.first().waitFor({ state: "visible", timeout: 20_000 }).catch(() => {});
+const skeletons = await skeleton.count();
 check(skeletons > 0, "판정 중에는 카드별 스켈레톤이 보인다", `${skeletons}개`);
 
 await waitForJudged(page);
@@ -248,10 +292,9 @@ check(
 );
 
 // ── 8. 서버 전용 키가 브라우저로 새지 않는가 ───────────────────────────
-const envLocal = fs.readFileSync(path.join(repoRoot, ".env.local"), "utf8");
 const secrets = ["SUPABASE_SERVICE_ROLE_KEY", "GEMINI_API_KEY", "YOUTH_API_KEY", "GOV24_API_KEY"]
-  .map((name) => [name, new RegExp(`^${name}=(.+)$`, "m").exec(envLocal)?.[1]?.trim()] as const)
-  .filter((e): e is readonly [string, string] => Boolean(e[1]) && e[1]!.length > 12);
+  .map((name) => [name, envValue(name)] as const)
+  .filter((e): e is readonly [string, string] => e[1].length > 12);
 
 const bodies: string[] = [];
 otherPage.on("response", async (res) => {

@@ -109,9 +109,20 @@ async function judge(policyIds: string[]): Promise<ApiBody> {
  * 선택 칩을 켠다. **체크박스를 직접 누를 수 없다** — `.chip input`이 `opacity:0`에 0×0이라
  * (globals.css §5.3) Playwright가 "보이지 않음"·"뷰포트 밖"으로 막는다. 사용자가 실제로
  * 누르는 것도 감싼 `<label>`이므로 그쪽을 누른다.
+ *
+ * ⚠️ **라벨 클릭은 토글이라 `.check()`처럼 멱등하지 않다.** 이 검사는 세션을 파일에 저장해
+ * 재사용하므로, 켜져 있는데 또 누르면 **프로필이 실행마다 달라지고 서명이 흔들려** 캐시 검사의
+ * 전제가 무너진다.
  */
-const chip = (group: string, label: string) =>
-  page.getByRole("group", { name: group }).locator("label").filter({ hasText: label }).first().click();
+const chip = async (group: string, label: string) => {
+  const box = page
+    .getByRole("group", { name: group })
+    .locator("label")
+    .filter({ hasText: new RegExp(`^${label}$`) })
+    .first();
+  if (await box.locator("input").isChecked()) return;
+  await box.click();
+};
 
 /** 프로필 저장은 목록으로 리다이렉트한다 (`app/profile/actions.ts`) */
 async function saveProfile(): Promise<void> {
@@ -132,6 +143,9 @@ async function waitForJudged(): Promise<void> {
     .getByRole("status", { name: "판정 중" })
     .first()
     .waitFor({ state: "detached", timeout: 60000 });
+  // ⚠️ **스켈레톤만 보면 이르다.** 스켈레톤은 카드마다 판정이 닿는 순간 걷히는데, 정렬은
+  // 스트림이 닫힐 때 한 번에 적용된다 (§6.1). `판정 중…`이 사라지는 렌더가 그 렌더다.
+  await page.getByText("판정 중…").waitFor({ state: "detached", timeout: 60000 });
 }
 
 /**
@@ -249,13 +263,9 @@ check(
   `${badgesBefore}/${ids.length}건`,
 );
 
-// **누를 버튼이 없다.** 목록을 열면 자동으로 돈다 (F-11) — 스켈레톤이 걷힐 때까지 기다린다.
-// 위 단계에서 전건이 캐시에 들어갔으므로 여기서는 스켈레톤 없이 즉시 통과하는 것이 정상이다.
-await page.waitForTimeout(700);
-await page
-  .getByRole("status", { name: "판정 중" })
-  .first()
-  .waitFor({ state: "detached", timeout: 60000 });
+// **누를 버튼이 없다.** 목록을 열면 자동으로 돈다 (F-11).
+// 위 단계에서 전건이 캐시에 들어갔으므로 여기서는 기다릴 것 없이 즉시 통과하는 것이 정상이다.
+await waitForJudged();
 
 const cards = await page.locator("article").evaluateAll(
   (els, src) =>

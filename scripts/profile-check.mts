@@ -66,29 +66,57 @@ async function session(name: string): Promise<[Page, () => Promise<void>]> {
   return [page, async () => void (await context.storageState({ path: file }))];
 }
 
+/**
+ * 저장하면 **목록으로 리다이렉트한다** (`app/profile/actions.ts`). 예전에는 폼에 남아
+ * `저장했습니다`를 띄웠다.
+ *
+ * 목록에 닿으면 판정이 자동으로 시작되지만(F-11) 이 검사는 폼만 본다 — 곧 폼으로 돌아가면
+ * 클라이언트는 요청을 끊고, 서버는 받은 판정을 그대로 저장한다.
+ */
 async function save(page: Page) {
-  await page.getByRole("button", { name: /저장/ }).click();
-  await page.getByText("저장했습니다", { exact: false }).waitFor({ timeout: 20000 });
+  await page.getByRole("button", { name: /^저장$/ }).click();
+  await page.waitForURL(`${base}/`, { timeout: 20000 });
 }
 
+/** 저장 뒤 폼을 다시 연다. `reload()`는 목록을 새로고침할 뿐이라 값을 볼 수 없다. */
+const reopen = (page: Page) => page.goto(`${base}/profile`, { waitUntil: "networkidle" });
+
 const group = (page: Page, name: string) => page.getByRole("group", { name });
+
+/**
+ * 선택 칩을 켠다. **입력을 직접 누를 수 없다** — `.chip input`이 `opacity:0`에 0×0이라
+ * (globals.css §5.3) Playwright가 "보이지 않음"·"뷰포트 밖"으로 막는다. 라디오도 같은 칩이다.
+ * 사용자가 실제로 누르는 것도 감싼 `<label>`이므로 그쪽을 누른다.
+ *
+ * ⚠️ **라벨 클릭은 토글이라 `.check()`처럼 멱등하지 않다.** 세션과 프로필이 실행 간에 남으므로
+ * (파일에 저장한 쿠키 항아리) 두 번째 실행부터는 이미 켜진 체크박스를 그대로 꺼버린다.
+ * 켜져 있으면 두는 것까지가 `.check()`의 뜻이다.
+ */
+const chip = async (page: Page, groupName: string, label: string) => {
+  const box = group(page, groupName)
+    .locator("label")
+    .filter({ hasText: new RegExp(`^${label}$`) })
+    .first();
+  if (await box.locator("input").isChecked()) return;
+  await box.click();
+};
 
 // ── 세션 A — 전 항목을 채운다
 const [a, keepA] = await session("a");
 await a.goto(`${base}/profile`, { waitUntil: "networkidle" });
 
-await a.getByLabel("생년").fill("1998");
+await a.getByLabel("생년").selectOption("1998");
 await a.getByLabel("시도").selectOption("11");
 await a.getByLabel("시군구").selectOption("동대문구");
-await group(a, "성별").getByRole("radio", { name: "남성" }).check();
+await chip(a, "성별", "남성");
 await a.getByLabel("소득 구간").selectOption("JA0203");
-await group(a, "개인 상황").getByRole("checkbox", { name: "근로자/직장인" }).check();
-await group(a, "가구 상황").getByRole("checkbox", { name: "1인가구" }).check();
-await group(a, "사업자 상황").getByRole("radio", { name: "예비창업자" }).check();
+await chip(a, "개인 상황", "근로자/직장인");
+await chip(a, "가구 상황", "1인가구");
+await chip(a, "사업자 상황", "예비창업자");
 await save(a);
 
-// 1. 저장 후 새로고침해도 값이 남는다
-await a.reload({ waitUntil: "networkidle" });
+// 1. 저장 후 다시 열어도 값이 남는다
+await reopen(a);
 check((await a.getByLabel("생년").inputValue()) === "1998", "새로고침 후 생년 유지");
 check((await a.getByLabel("시도").inputValue()) === "11", "새로고침 후 시도 유지");
 check((await a.getByLabel("시군구").inputValue()) === "동대문구", "새로고침 후 시군구 유지");
@@ -110,7 +138,9 @@ check(
 // 저장한 조건이 실제로 목록을 좁히는가 — scripts/query-check.mts가 SQL로 잰 값과 같아야 한다
 await a.goto(base, { waitUntil: "networkidle" });
 const listed = await a.locator("main > p").filter({ hasText: "코드 조건 통과" }).first().innerText();
-check(listed.includes("573"), "목록이 저장된 조건으로 좁혀진다 (28세·서울·동대문구 → 573건)", listed.trim());
+// 573 → 569: 정책명으로 지역을 회수하면서 전국 취급이던 4건이 타 지역 전용이 됐다 (커밋 939cc7b).
+// `query-check.mts`가 SQL로 재는 값과 같은 수여야 한다 — 한쪽만 고치면 다시 어긋난다.
+check(listed.includes("569"), "목록이 저장된 조건으로 좁혀진다 (28세·서울·동대문구 → 569건)", listed.trim());
 check(await a.getByRole("link", { name: "내 조건 수정" }).isVisible(), "프로필이 있으면 수정 링크");
 await keepA();
 
@@ -129,15 +159,15 @@ check(
 check(await b.getByRole("link", { name: "내 조건 입력하기" }).isHidden(), "프로필 폼은 세션 B에도 열린다");
 
 // 채운 값을 되돌릴 수 있어야 한다 — 조건을 잘못 넣었을 때 지울 방법이 없으면 안 된다
-await b.getByLabel("생년").fill("");
+await b.getByLabel("생년").selectOption("");
 await save(b);
-await b.reload({ waitUntil: "networkidle" });
+await reopen(b);
 check((await b.getByLabel("생년").inputValue()) === "", "채운 값을 다시 비울 수 있다");
 
 // 3. 생년만 채워도 저장된다
-await b.getByLabel("생년").fill("1990");
+await b.getByLabel("생년").selectOption("1990");
 await save(b);
-await b.reload({ waitUntil: "networkidle" });
+await reopen(b);
 check((await b.getByLabel("생년").inputValue()) === "1990", "생년만 채워도 저장된다");
 check((await b.getByLabel("시도").inputValue()) === "", "안 채운 항목은 빈 채로 남는다");
 
@@ -150,7 +180,7 @@ await b.evaluate(() => {
   select.value = "중구";
 });
 await save(b);
-await b.reload({ waitUntil: "networkidle" });
+await reopen(b);
 check(
   (await b.getByLabel("시군구").inputValue()) === "",
   "시도 없이 온 시군구는 버린다",
