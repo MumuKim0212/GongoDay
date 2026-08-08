@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Fragment } from "react";
 
 import { ListControls } from "@/components/ListControls";
+import { Pager } from "@/components/Pager";
 import { PolicyList } from "@/components/PolicyList";
 import { ViewToggle } from "@/components/ViewToggle";
 import { CODE_LABELS } from "@/lib/profile/schema";
@@ -107,7 +108,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
           </p>
         </div>
 
-        {/* ⚠️ `main`의 직계 `p`로 남아야 한다 — release-check의 `countText()`가 이 선택자로 읽는다 */}
+        {/* ⚠️ `main`의 직계 `p`로 남아야 한다 — release-check의 `countText()`가 이 선택자로 읽는다.
+            `통과 N건`이라는 말도 그 함수가 수를 집는 기준이므로 함께 두어야 한다 */}
         <p className="text-small text-muted mt-4 text-center">
           <span className="tag tag-accent tabular-nums">
             {/* "내 조건에 맞는"이라고 쓰면 AI 판정을 마친 것처럼 읽힌다 (§6.1) */}
@@ -126,7 +128,15 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
         {/* 거르는 것을 한 상자에 모은다 — 분야·검색은 지금 고르는 조건이고, 내 조건은 이미
             걸려 있는 조건이라 [상세보기] 뒤에 접어 둔다 (§5.1) */}
         <section className="card mt-3 p-4 sm:p-5">
-          <ListControls categories={filters.categories} q={filters.q} scrapsOnly={scrapsOnly} />
+          {/* 검색어가 바뀌면 입력칸을 새로 만든다. 소프트 내비게이션에서는 이 트리가 살아남아
+              `useState(q)`가 다시 초기화되지 않으므로, 검색 → 뒤로가기 뒤에 **목록은 검색이
+              풀렸는데 입력칸에는 옛 검색어가 남아** 있었다 (React의 "key로 상태 리셋"). */}
+          <ListControls
+            key={filters.q ?? ""}
+            categories={filters.categories}
+            q={filters.q}
+            scrapsOnly={scrapsOnly}
+          />
           <ConditionDetails conditions={profile ? profileConditions(profile) : null} />
         </section>
 
@@ -172,9 +182,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
           )}
         </section>
 
-        {lastPage > 1 && rows.length > 0 ? (
-          <Pager page={filters.page} lastPage={lastPage} sp={sp} />
-        ) : null}
+        {lastPage > 1 && rows.length > 0 ? <Pager page={filters.page} lastPage={lastPage} /> : null}
 
         <SyncFooter at={latestOf(syncedAt)} />
       </main>
@@ -361,36 +369,3 @@ function EmptyState({ title, body }: { title: string; body: string }) {
   );
 }
 
-function Pager({ page, lastPage, sp }: { page: number; lastPage: number; sp: Search }) {
-  const href = (p: number) => {
-    const next = new URLSearchParams();
-    for (const [k, v] of Object.entries(sp)) {
-      const val = one(v);
-      if (val !== null && k !== "page") next.set(k, val);
-    }
-    if (p > 1) next.set("page", String(p));
-    return next.toString() ? `/?${next}` : "/";
-  };
-
-  return (
-    <nav className="mt-6 flex items-center justify-between">
-      {page > 1 ? (
-        <Link href={href(page - 1)} className="btn btn-ghost">
-          ← 이전
-        </Link>
-      ) : (
-        <span />
-      )}
-      <span className="text-small text-muted tabular-nums">
-        {page} / {lastPage}
-      </span>
-      {page < lastPage ? (
-        <Link href={href(page + 1)} className="btn btn-ghost">
-          다음 →
-        </Link>
-      ) : (
-        <span />
-      )}
-    </nav>
-  );
-}

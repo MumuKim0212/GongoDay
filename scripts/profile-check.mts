@@ -101,6 +101,22 @@ const chip = async (page: Page, groupName: string, label: string) => {
   await box.click();
 };
 
+/**
+ * 히어로 아래 "1차 조건 통과 N건"의 N.
+ *
+ * ⚠️ **`통과` 뒤의 수를 집는다.** 첫 숫자를 집으면 `1차`의 `1`을 세어 늘 1이 된다. `건`까지
+ * 붙여 잡을 수도 없다 — `.tag`가 `inline-flex`라 안의 `<strong>`이 플렉스 항목이 되고
+ * `innerText`에 개행이 낀다(`1차 조건 통과\n2,440\n건 / 전체 …`). `release-check`도 같은 함수다.
+ */
+async function passedCount(page: Page): Promise<number> {
+  const text = await page
+    .locator("main > p")
+    .filter({ hasText: "1차 조건 통과" })
+    .first()
+    .innerText();
+  return Number((/통과\s*([\d,]+)/.exec(text)?.[1] ?? "0").replace(/,/g, ""));
+}
+
 // ── 세션 A — 전 항목을 채운다
 const [a, keepA] = await session("a");
 await a.goto(`${base}/profile`, { waitUntil: "networkidle" });
@@ -135,12 +151,29 @@ check(
   "새로고침 후 사업자상황 유지",
 );
 
-// 저장한 조건이 실제로 목록을 좁히는가 — scripts/query-check.mts가 SQL로 잰 값과 같아야 한다
+/**
+ * 저장한 조건이 실제로 목록을 좁히는가 — **조건이 없는 세션과 같은 시점에 재서 비교한다.**
+ *
+ * ⚠️ 전에는 `569`라는 절대 건수를 박아 두었다. 수집이 매시간 도는 데이터라 **맞춰 둔 수가
+ * 며칠이면 어긋난다** — 573 → 569로 한 번 고쳤고 그다음엔 571이 됐다. 화면이 SQL과 같은
+ * 수인지는 `query-check.mts`가 맡고, 여기서는 "좁혀졌는가"만 본다.
+ *
+ * 두 세션의 **분야 기본값이 같다**는 것이 이 비교의 전제다 — 프로필의 `interests`가 DB 기본값
+ * (`job,housing`)이고 조건 없는 쪽은 `DEFAULT_CATEGORIES`라 같은 두 분야다. 그래서 줄어든
+ * 몫은 나이·지역뿐이다.
+ */
+const [anon, keepAnon] = await session("anon"); // 이 세션은 프로필을 만들지 않는다
+await anon.goto(base, { waitUntil: "networkidle" });
+const before = await passedCount(anon);
+await keepAnon();
+
 await a.goto(base, { waitUntil: "networkidle" });
-const listed = await a.locator("main > p").filter({ hasText: "1차 조건 통과" }).first().innerText();
-// 573 → 569: 정책명으로 지역을 회수하면서 전국 취급이던 4건이 타 지역 전용이 됐다 (커밋 939cc7b).
-// `query-check.mts`가 SQL로 재는 값과 같은 수여야 한다 — 한쪽만 고치면 다시 어긋난다.
-check(listed.includes("569"), "목록이 저장된 조건으로 좁혀진다 (28세·서울·동대문구 → 569건)", listed.trim());
+const after = await passedCount(a);
+check(
+  before > 0 && after < before,
+  "저장한 조건이 목록을 좁힌다 (28세·서울·동대문구)",
+  `조건 없음 ${before}건 → 조건 있음 ${after}건`,
+);
 check(await a.getByRole("link", { name: "내 조건 수정" }).isVisible(), "프로필이 있으면 수정 링크");
 await keepA();
 

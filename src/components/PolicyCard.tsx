@@ -15,8 +15,11 @@ import { CategoryBadge, ScoreBadge, SourceKicker, VerdictBadgeSkeleton } from ".
  * PRD §1.2 후기 불만 #1("지원도 못하는 공고가 보인다")에 대한 답이다.
  * 걸러 없애는 것과 이유를 붙여 보여주는 것은 다르다. 전자는 사용자가 신청 기회를 잃는다.
  *
- * 카드는 가로 두 칸이다 — 내용과 점수. 점수가 오른쪽 위에 고정되어 있어야 목록을 훑을 때
- * 눈이 한 열만 따라가면 된다.
+ * **배지는 출처 키커와 같은 줄, 카드 오른쪽 위다** (DESIGN.md §5.1). 전에는 카드가 가로 두
+ * 칸이어서 배지가 오른쪽 열을 통째로 차지했는데, 375px에서 카드 335px 중 배지가 100px 넘게
+ * 먹어 **제목이 180px대로 눌렸다** (§7에 미정으로 남아 있던 자리). 머리줄로 올리면 제목부터는 어느
+ * 폭에서도 카드 폭을 다 쓰고, 배지의 x좌표는 그대로라 목록을 훑는 눈은 여전히 한 열만 따라간다.
+ * 상세 화면의 제목 + 배지도 같은 형태다 (§5.2).
  */
 export function PolicyCard({
   policy,
@@ -38,41 +41,42 @@ export function PolicyCard({
   ].filter((v): v is string => v !== null);
 
   return (
-    <article className={`card elev-sm flex-row items-start gap-4 ${dimmed ? "opacity-60" : ""}`}>
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+    // `.card`의 세로 흐름 그대로다. 안쪽 간격만 `gap-1.5`로 좁힌다 — 카드 한 장 안의 줄 간격이다.
+    <article className={`card elev-sm gap-1.5 ${dimmed ? "opacity-60" : ""}`}>
+      {/* 머리줄 — 왼쪽은 출처, 오른쪽은 점수. 배지는 줄지 않는다(`.tag`의 `shrink-0`) */}
+      <div className="flex items-start justify-between gap-4">
         <SourceKicker source={policy.source} />
 
-        <Link
-          href={`/policies/${policy.id}`}
-          className="card-title underline-offset-2 hover:underline"
-        >
-          {policy.title}
-        </Link>
-
-        {facts.length > 0 ? <p className="card-body">{facts.join(" · ")}</p> : null}
-
-        {policy.categories.length > 0 ? (
-          <div className="card-meta flex-wrap">
-            {policy.categories.slice(0, 3).map((c) => (
-              <CategoryBadge key={c} label={CATEGORY_LABELS[c as Category] ?? c} />
-            ))}
-          </div>
+        {verdict && score ? (
+          <ScoreBadge
+            score={score}
+            checkCount={verdict.checks.length}
+            decidedBy={verdict.decided_by}
+          />
+        ) : judging ? (
+          <VerdictBadgeSkeleton />
         ) : null}
-
-        {verdict ? (
-          <VerdictDetail verdict={verdict} />
-        ) : (
-          <p className="card-body line-clamp-2">
-            {policy.summary ?? policy.eligibility_text ?? ""}
-          </p>
-        )}
       </div>
 
-      {verdict && score ? (
-        <ScoreBadge score={score} checkCount={verdict.checks.length} decidedBy={verdict.decided_by} />
-      ) : judging ? (
-        <VerdictBadgeSkeleton />
+      <Link href={`/policies/${policy.id}`} className="card-title underline-offset-2 hover:underline">
+        {policy.title}
+      </Link>
+
+      {facts.length > 0 ? <p className="card-body">{facts.join(" · ")}</p> : null}
+
+      {policy.categories.length > 0 ? (
+        <div className="card-meta flex-wrap">
+          {policy.categories.slice(0, 3).map((c) => (
+            <CategoryBadge key={c} label={CATEGORY_LABELS[c as Category] ?? c} />
+          ))}
+        </div>
       ) : null}
+
+      {verdict ? (
+        <VerdictDetail verdict={verdict} />
+      ) : (
+        <p className="card-body line-clamp-2">{policy.summary ?? policy.eligibility_text ?? ""}</p>
+      )}
     </article>
   );
 }

@@ -21,14 +21,27 @@ export function QuoteHighlight({
   range: Range | null;
 }) {
   return (
-    <div className="flex flex-col gap-5">
-      {sections.map((section) => (
-        <div key={section.label}>
-          <h2 className="text-sub">{section.label}</h2>
-          <Body text={section.body} range={localRange(section, range)} />
-        </div>
-      ))}
-    </div>
+    <>
+      {/*
+        **칠한 것이 무엇인지 글로도 말해야 한다** (DESIGN.md §4.3의 문구 그대로 · §6.2).
+        틴트만 두면 색으로만 뜻을 전하는 자리가 되고, `<mark>`는 대부분의 스크린리더가
+        아무것도 읽어주지 않는다. 구간을 못 찾았을 때는 칠할 것이 없으므로 이 줄도 없다.
+      */}
+      {range !== null ? (
+        <p className="text-micro text-muted mb-3">
+          표시된 문장이 판정 근거로 인용된 문장입니다
+        </p>
+      ) : null}
+
+      <div className="flex flex-col gap-5">
+        {sections.map((section) => (
+          <div key={section.label}>
+            <h2 className="text-sub">{section.label}</h2>
+            <Body text={section.body} range={localRange(section, range)} />
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 

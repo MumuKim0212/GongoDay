@@ -139,8 +139,9 @@ async function saveProfile(): Promise<void> {
  */
 async function waitForJudged(): Promise<void> {
   await page.waitForTimeout(700);
+  // 스켈레톤은 낭독에서 빠졌으므로 역할로 찾을 수 없다 — 표식은 `animate-pulse`뿐이다 (DESIGN §6.4).
   await page
-    .getByRole("status", { name: "판정 중" })
+    .locator("article span.animate-pulse")
     .first()
     .waitFor({ state: "detached", timeout: 60000 });
   // ⚠️ **스켈레톤만 보면 이르다.** 스켈레톤은 카드마다 판정이 닿는 순간 걷히는데, 정렬은

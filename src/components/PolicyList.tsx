@@ -102,6 +102,7 @@ export function PolicyList({
   const [sortBasis, setSortBasis] = useState<VerdictMap>(known);
   const [judging, setJudging] = useState(false);
   const [failedIds, setFailedIds] = useState<string[]>([]);
+  /** **실패를 알리는 한 줄만 담는다.** 점수 요약은 아래 `summary`처럼 화면에서 파생한다. */
   const [note, setNote] = useState<string | null>(null);
 
   // 쓰기는 렌더 밖에서만 한다. 조건이 바뀌었으면 들고 있던 것을 버린다.
@@ -118,6 +119,15 @@ export function PolicyList({
     };
     return [...rows].sort((a, b) => rank(a.id) - rank(b.id));
   }, [rows, sortBasis]);
+
+  /**
+   * 점수 요약 (DESIGN.md §5.1) — **화면에 있는 판정을 전부 센다.**
+   *
+   * 이번 요청으로 받은 것만 세면 **판정이 끝난 페이지를 새로고침할 때 요약 줄이 통째로 사라진다** —
+   * 서버가 `initialVerdicts`로 다 내려주므로 판정할 것이 없어 요청이 만들어지지 않고, 요약을
+   * 채우던 스트림의 마지막 줄도 오지 않는다. 화면에서 파생되는 값이라 상태로 들고 있지 않는다.
+   */
+  const summary = useMemo(() => summarize(verdicts), [verdicts]);
 
   /** 아직 판정이 없는 것. 비어 있으면 왕복 자체를 만들지 않는다 — 캐시 적중의 값이 여기서 나온다. */
   const pendingIds = useMemo(
@@ -182,10 +192,8 @@ export function PolicyList({
           if (text === "") continue;
           const msg = JSON.parse(text) as StreamLine;
 
-          if (msg.t === "done") {
-            setNote(summarize(arrived));
-            continue;
-          }
+          // 스트림의 마지막 줄. 요약은 화면에 있는 판정에서 파생되므로 여기서 할 일이 없다.
+          if (msg.t === "done") continue;
 
           arrived[msg.id] = msg.v;
           // 실패분은 서버가 저장하지 않았다 — 들고 다니면 다시 부를 길이 막힌다.
@@ -292,11 +300,18 @@ export function PolicyList({
               <span className="text-micro text-muted">
                 세션을 만들지 못해 판정을 쓸 수 없습니다. 목록은 그대로 보입니다.
               </span>
-            ) : judging ? (
-              <span className="text-micro text-muted">판정 중…</span>
-            ) : note ? (
-              <span className="text-micro text-muted">{note}</span>
-            ) : null}
+            ) : (
+              /*
+                상태 줄 하나 — `판정 중…` → 점수 요약, 실패했으면 그 한 줄 (DESIGN.md §5.1·§6.4).
+                **비어 있어도 자리를 지킨다.** 나중에 채워지는 라이브 영역은 처음부터 DOM에
+                있어야 낭독되고, 비었을 때는 줄 박스가 없어 높이도 0이다.
+                카드마다 서던 스켈레톤의 `role="status"`를 이 한 줄로 옮긴 것이다 — 그때는
+                같은 말이 열 번 낭독됐다.
+              */
+              <p className="text-micro text-muted" aria-live="polite">
+                {judging ? "판정 중…" : (note ?? summary)}
+              </p>
+            )}
           </>
         )}
       </div>

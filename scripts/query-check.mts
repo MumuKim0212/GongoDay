@@ -34,15 +34,34 @@ const base = { ...defaultFilters(), ...ME };
 
 const withSigungu = await fetchPolicies(db, base);
 check(withSigungu.error === null, "조회 오류 없음", withSigungu.error ?? "");
-check(withSigungu.totalCount === 13662, "전체 건수 13,662", String(withSigungu.totalCount));
-// 573 → 569: 정책명으로 지역을 회수하면서 전국 취급이던 4건이 타 지역 전용이 됐다 (region.ts `fallback()`)
-check(withSigungu.filteredCount === 569, "1차 필터 + 동대문구 → 569건", String(withSigungu.filteredCount));
+
+/**
+ * ⚠️ **절대 건수를 박지 않는다.** 수집이 매시간 돌아 표본이 계속 늘어난다 — 전체는
+ * 13,662 → 13,685로, 동대문구는 573 → 569 → 571로 움직였고 그때마다 검사가 실패했다.
+ * 여기서 규칙인 것은 **수들 사이의 관계**다. 절대값은 데이터의 성질이지 코드의 성질이 아니다.
+ */
+const { count: rowCount } = await db.from("policies").select("id", { count: "exact", head: true });
+check(
+  withSigungu.totalCount === rowCount,
+  "'전체 M건'은 1차 필터를 걸지 않은 수다 (= 테이블 전체)",
+  `${withSigungu.totalCount} / ${rowCount}`,
+);
 
 const noSigungu = await fetchPolicies(db, { ...base, regionSigungu: null });
-check(noSigungu.filteredCount === 613, "1차 필터 (시군구 미선택) → 613건", String(noSigungu.filteredCount));
-
 const noProfile = await fetchPolicies(db, defaultFilters());
-check(noProfile.filteredCount > 613, "프로필 없으면 나이·지역 조건이 안 걸린다", `${noProfile.filteredCount}건`);
+// 조건을 하나 더할 때마다 좁아진다. 어느 한 단계가 같아지면 그 조건이 실제로는 안 걸리는 것이다.
+check(
+  noProfile.filteredCount > noSigungu.filteredCount &&
+    noSigungu.filteredCount > withSigungu.filteredCount &&
+    withSigungu.filteredCount > 0,
+  "조건을 더할수록 좁아진다 (조건 없음 > 시도 > 시도+시군구 > 0)",
+  `${noProfile.filteredCount} > ${noSigungu.filteredCount} > ${withSigungu.filteredCount}`,
+);
+check(
+  withSigungu.filteredCount < withSigungu.totalCount,
+  "1차 필터를 통과한 수가 '전체 M건'보다 작다",
+  `${withSigungu.filteredCount} < ${withSigungu.totalCount}`,
+);
 
 // 페이지네이션
 check(withSigungu.rows.length === PAGE_SIZE, `1페이지가 ${PAGE_SIZE}건`, `${withSigungu.rows.length}건`);
@@ -80,7 +99,12 @@ check(farmOnly.filteredCount >= 0, "분야를 좁히면 0건도 나올 수 있�
 const noCategory = await fetchPolicies(db, { ...base, categories: [] });
 check(noCategory.filteredCount === 0, "분야 전부 끔 → 0건", `${noCategory.filteredCount}건`);
 check(noCategory.rows.length === 0, "분야 전부 끔 → 카드 없음", `${noCategory.rows.length}건`);
-check(noCategory.totalCount === 13662, "분야 전부 꺼도 '전체 M건'은 유지", String(noCategory.totalCount));
+// 같은 시점의 두 조회를 맞대 본다 — 분야는 '전체 M건'에 들어가지 않는 층이다 (query.ts `scope`)
+check(
+  noCategory.totalCount === withSigungu.totalCount,
+  "분야 전부 꺼도 '전체 M건'은 그대로다",
+  `${noCategory.totalCount} / ${withSigungu.totalCount}`,
+);
 
 // 검색어가 한글이어도 동작한다
 const kw = await fetchPolicies(db, { ...defaultFilters(), q: "청년월세" });

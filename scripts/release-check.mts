@@ -77,8 +77,9 @@ async function saveProfile(page: Page) {
  */
 async function waitForJudged(page: Page) {
   await page.waitForTimeout(700);
+  // 스켈레톤은 낭독에서 빠졌으므로 역할로 찾을 수 없다 — 표식은 `animate-pulse`뿐이다 (§6.4).
   await page
-    .getByRole("status", { name: "판정 중" })
+    .locator("article span.animate-pulse")
     .first()
     .waitFor({ state: "detached", timeout: 60_000 });
   // ⚠️ **스켈레톤만 보면 이르다.** 스켈레톤은 카드마다 판정이 닿는 순간 걷히는데, 정렬은
@@ -189,7 +190,7 @@ await resetVerdicts(pageIds);
 
 // 판정 중에는 배지 자리에 스켈레톤이 선다 (§7). **`networkidle`로 열면 안 된다** — 판정 요청이
 // 네트워크를 붙잡고 있어 그게 끝난 뒤에 돌아오고, 그때는 스켈레톤이 이미 걷혔다.
-const skeleton = page.getByRole("status", { name: "판정 중" });
+const skeleton = page.locator("article span.animate-pulse");
 await page.goto(base, { waitUntil: "domcontentloaded" });
 await skeleton.first().waitFor({ state: "visible", timeout: 20_000 }).catch(() => {});
 const skeletons = await skeleton.count();
@@ -336,8 +337,17 @@ function listFiles(dir: string): string[] {
   });
 }
 
-/** "1차 조건 통과 N건" 숫자 */
+/**
+ * "1차 조건 통과 N건" 숫자
+ *
+ * ⚠️ **`통과` 뒤의 수를 집어야 한다.** 첫 숫자를 집으면 문구가 `코드 조건 통과`에서
+ * `1차 조건 통과`로 바뀐 순간(`b411795`) **앞머리의 `1`을 세어 늘 1을 돌려준다** — 아래
+ * 두 검사가 `1 < 1`로 조용히 실패했다. 못 찾으면 0을 돌려 검사가 시끄럽게 실패하도록 둔다.
+ *
+ * `건`까지 붙여 잡을 수는 없다 — `.tag`가 `inline-flex`라 안의 `<strong>`이 플렉스 항목이 되고
+ * `innerText`에 개행이 낀다(`1차 조건 통과\n2,440\n건 / 전체 …`). 그래서 수까지만 집는다.
+ */
 async function countText(p: Page): Promise<number> {
   const text = await p.locator("main > p").filter({ hasText: /통과|전체/ }).first().innerText();
-  return Number((/([\d,]+)/.exec(text)?.[1] ?? "0").replace(/,/g, ""));
+  return Number((/통과\s*([\d,]+)/.exec(text)?.[1] ?? "0").replace(/,/g, ""));
 }

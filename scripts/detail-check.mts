@@ -133,8 +133,9 @@ const page: Page = await context.newPage();
 // 스켈레톤이 아예 안 뜨는데, 그때 `detached` 대기는 즉시 통과한다.
 await page.goto(`${base}/?view=list`, { waitUntil: "networkidle" });
 await page.waitForTimeout(700);
+// 스켈레톤은 낭독에서 빠졌으므로 역할로 찾을 수 없다 — 표식은 `animate-pulse`뿐이다 (DESIGN §6.4).
 await page
-  .getByRole("status", { name: "판정 중" })
+  .locator("article span.animate-pulse")
   .first()
   .waitFor({ state: "detached", timeout: 60_000 });
 

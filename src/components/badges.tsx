@@ -61,10 +61,17 @@ export function ScoreBadge({
  *
  * **`&nbsp;`여야 한다.** `.tag`가 `inline-flex`라 보통 공백뿐인 텍스트는 익명 플렉스 항목으로
  * 렌더되지 않고(CSS Flexbox §4) 높이가 0으로 무너진다.
+ *
+ * **낭독에서는 뺀다** (DESIGN.md §6.4). 전에는 `role="status" aria-label="판정 중"`이었는데,
+ * 한 화면에 열 장이 동시에 서므로 **같은 말이 열 번 낭독됐다.** 진행 상태는 목록 위 상태 줄
+ * 하나가 `aria-live`로 말한다 — 이 자리는 배지가 도착할 때 카드가 튀지 않게 하는 장치일 뿐이다.
+ *
+ * ⚠️ `animate-pulse`가 이 요소의 유일한 표식으로 남아야 한다 — 검사 스크립트 셋이
+ * `article span.animate-pulse`로 스켈레톤을 센다(역할로는 더 이상 찾을 수 없다).
  */
 export function VerdictBadgeSkeleton() {
   return (
-    <span role="status" aria-label="판정 중" className="tag tag-neutral w-20 shrink-0 animate-pulse">
+    <span aria-hidden className="tag tag-neutral w-20 shrink-0 animate-pulse">
       &nbsp;
     </span>
   );
