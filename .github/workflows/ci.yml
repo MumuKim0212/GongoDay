@@ -26,9 +26,9 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -40,6 +40,10 @@ jobs:
       - name: lint
         run: npm run lint
 
+      # 이 스크립트가 `tsc` 앞에 `next typegen`을 돌리는 이유가 여기 있다. `PageProps`·
+      # `LayoutProps`는 Next.js가 `.next/types`에 만들어주는 전역 타입인데 그 디렉터리는
+      # gitignore라 새로 받은 트리에는 없다. 생성 없이 `tsc`만 돌리면 로컬에서는 멀쩡한
+      # 코드가 여기서만 "Cannot find name 'PageProps'"로 끊긴다.
       - name: typecheck
         if: always()
         run: npm run typecheck
