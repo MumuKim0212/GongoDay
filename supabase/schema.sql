@@ -137,6 +137,51 @@ create index if not exists sync_runs_source_started_at_idx
   on sync_runs (source, started_at desc);
 
 -- ─────────────────────────────────────────────────────────────
+-- verdict_runs — 판정 배치 한 번의 장부  §2.7
+--
+-- **`verdicts` 행 수로는 호출 수를 셀 수 없다.** 실패한 호출은 저장하지 않고(route.ts),
+-- upsert라 재판정이 행을 덮어쓰며, 캐시 적중은 애초에 행을 만들지 않는다. 셋 다 비용 판단에
+-- 필요한 값이라 배치마다 한 줄씩 따로 적는다 — `sync_runs`가 수집에 대해 하는 일과 같다.
+--
+-- 자동 판정이라 **목록 페이지를 열 때마다 한 행씩 쌓인다.** 정수 몇 개짜리라 가볍지만
+-- 무한히 늘어나는 테이블이므로, 커지면 오래된 행을 지우거나 일 단위로 말아 넣는다.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists verdict_runs (
+  id                uuid primary key default gen_random_uuid(),
+  -- 누가 불렀나. 계정이 지워져도 장부는 남아야 하므로 set null이다 (verdicts.requested_by와 같다)
+  requested_by      uuid references auth.users (id) on delete set null,
+  -- 호출 시점에 익명이었는지. 나중에 uid로 되짚으면 로그인 전환분이 섞여 답이 달라진다
+  was_anonymous     boolean not null default true,
+  -- 사용자별로 묶지 못할 때(익명) 조건별로는 묶어 볼 수 있다
+  profile_signature text,
+
+  requested         int not null default 0,   -- 이번 요청이 물어본 정책 수 (≤ PAGE_SIZE)
+  cached            int not null default 0,   -- 캐시로 답한 수 — 호출하지 않은 몫
+  gate_blocked      int not null default 0,   -- 코드 게이트가 답한 수 — 역시 호출하지 않은 몫
+  ai_called         int not null default 0,   -- **실제로 Gemini에 보낸 수. 비용의 분자다**
+  ai_failed         int not null default 0,   -- 그중 답을 못 받은 수 (저장되지 않아 verdicts에는 안 남는다)
+
+  -- 실제 청구는 호출 수가 아니라 토큰으로 매겨진다. Gemini 응답의 usageMetadata를 합산한 값이고,
+  -- 응답에 없으면 0으로 남는다 — 그때는 "호출은 있는데 토큰이 0"으로 드러난다
+  prompt_tokens     int not null default 0,
+  output_tokens     int not null default 0,
+
+  -- 캐시 조회 자체가 실패하면 전건이 재호출된다. 화면에 안 보이면서 값이 나가는 유일한 경로라 센다
+  cache_error       boolean not null default false,
+  save_error        boolean not null default false,
+  duration_ms       int not null default 0,
+  created_at        timestamptz not null default now()
+);
+
+-- 사용량 조회는 (사용자 → 최근) 순서다. 나중에 붙일 '유저당 사용량 제한'도 이 인덱스를 쓴다
+create index if not exists verdict_runs_user_created_at_idx
+  on verdict_runs (requested_by, created_at desc);
+
+-- 기간별 합계(오늘 / 최근 7일)용
+create index if not exists verdict_runs_created_at_idx
+  on verdict_runs (created_at desc);
+
+-- ─────────────────────────────────────────────────────────────
 -- app_settings — 운영 토글 (단일 행)
 -- 관리자 화면에서 즉시 켜고 꺼야 해서 환경변수가 아니라 DB 값이다. 서버는 1분 TTL로 캐시해 읽는다.
 -- ─────────────────────────────────────────────────────────────
@@ -154,12 +199,13 @@ on conflict (id) do nothing;
 -- policies / sync_runs 는 읽기만 공개. write 정책을 '아예 만들지 않는다' —
 -- service_role은 RLS를 우회하므로 수집 라우트는 정책 없이도 쓴다.
 -- ─────────────────────────────────────────────────────────────
-alter table policies     enable row level security;
-alter table profiles     enable row level security;
-alter table verdicts     enable row level security;
-alter table scraps       enable row level security;
-alter table sync_runs    enable row level security;
-alter table app_settings enable row level security;
+alter table policies      enable row level security;
+alter table profiles      enable row level security;
+alter table verdicts      enable row level security;
+alter table scraps        enable row level security;
+alter table sync_runs     enable row level security;
+alter table app_settings  enable row level security;
+alter table verdict_runs  enable row level security;
 
 drop policy if exists policies_read_all on policies;
 create policy policies_read_all on policies
@@ -182,3 +228,137 @@ drop policy if exists verdicts_own on verdicts;
 drop policy if exists scraps_own on scraps;
 create policy scraps_own on scraps
   for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- verdict_runs / app_settings 도 정책을 만들지 않는다 — 운영 장부와 운영 토글이라 service_role 전용이다.
+
+-- ─────────────────────────────────────────────────────────────
+-- 운영 집계 함수  §2.8
+--
+-- `stats.ts`는 원래 RPC 없이 `count: exact, head: true` 병렬 조회만 쓴다 (스키마를 안 건드리려고).
+-- 아래 셋은 **PostgREST로는 불가능해서** 예외로 둔 것이다:
+--   · `auth.users`는 PostgREST에 노출되는 스키마가 아니다 (public/graphql_public만)
+--   · `sum()` / `group by`가 PostgREST 쿼리 문법에 없다 — 행을 다 받아와 세는 수밖에 없는데
+--     `verdict_runs`는 페이지뷰마다 쌓여서 그 방법이 곧 못 쓰게 된다
+--
+-- 셋 다 `security definer`다 (auth 스키마를 읽어야 하므로). **`anon`·`authenticated`에서 실행 권한을
+-- 회수하고 service_role에만 준다** — 그러지 않으면 브라우저에 나가 있는 anon 키로 누구나
+-- 사용자 수와 이메일을 읽어간다. `search_path` 고정도 같은 이유다 (definer 함수의 검색 경로 탈취 방지).
+--
+-- ⚠️ **`revoke ... from public` 만으로는 못 막는다.** Supabase는 `public` 의사 역할이 아니라
+-- `anon`·`authenticated`에 **직접** EXECUTE를 부여한다(default privileges). 그래서 실제 ACL이
+-- `anon=X/postgres`로 남고, PUBLIC에서만 회수하면 그 줄이 그대로 살아 함수가 열려 있다.
+-- 실측으로 확인한 자리다 — 적용 직후 anon 키로 세 함수가 전부 호출됐다. 역할을 이름으로 회수한다.
+-- ─────────────────────────────────────────────────────────────
+
+-- 방문 → 조건 등록 → 로그인의 세 단계를 한 번에 센다.
+-- ⚠️ `total`은 사람 수가 아니다. proxy.ts가 쿠키 없는 **화면 요청마다** 익명 세션을 만들므로
+--    크롤러 방문이 그대로 섞인다 (§1.1). 그래서 아래 세 칸을 나란히 두는 것 자체가 누수 감지기다.
+create or replace function admin_user_counts()
+returns table (
+  total              bigint,
+  anon               bigint,
+  identified         bigint,
+  anon_profiled      bigint,
+  identified_profiled bigint
+)
+language sql
+security definer
+set search_path = public, auth
+as $$
+  select
+    count(*),
+    count(*) filter (where u.is_anonymous),
+    count(*) filter (where not u.is_anonymous),
+    count(*) filter (where u.is_anonymous and p.id is not null),
+    count(*) filter (where not u.is_anonymous and p.id is not null)
+  from auth.users u
+  left join public.profiles p on p.id = u.id;
+$$;
+
+revoke execute on function admin_user_counts() from public, anon, authenticated;
+grant execute on function admin_user_counts() to service_role;
+
+-- 호출·토큰 누적. 전체 / 최근 7일 / 오늘(KST)을 한 번에 돌려준다.
+-- 날짜 경계는 서울 기준이다 — 운영자가 "오늘"이라고 말할 때의 오늘이어야 한다.
+create or replace function admin_usage_stats()
+returns table (
+  span          text,
+  runs          bigint,
+  requested     bigint,
+  cached        bigint,
+  gate_blocked  bigint,
+  ai_called     bigint,
+  ai_failed     bigint,
+  prompt_tokens bigint,
+  output_tokens bigint,
+  cache_errors  bigint,
+  save_errors   bigint,
+  p50_ms        int,
+  p95_ms        int
+)
+language sql
+security definer
+set search_path = public
+as $$
+  with spans as (
+    select 'all'::text as span, '-infinity'::timestamptz as since
+    union all select 'week', now() - interval '7 days'
+    union all select 'today', date_trunc('day', now() at time zone 'Asia/Seoul') at time zone 'Asia/Seoul'
+  )
+  select
+    s.span,
+    count(r.id),
+    coalesce(sum(r.requested), 0),
+    coalesce(sum(r.cached), 0),
+    coalesce(sum(r.gate_blocked), 0),
+    coalesce(sum(r.ai_called), 0),
+    coalesce(sum(r.ai_failed), 0),
+    coalesce(sum(r.prompt_tokens), 0),
+    coalesce(sum(r.output_tokens), 0),
+    count(r.id) filter (where r.cache_error),
+    count(r.id) filter (where r.save_error),
+    coalesce(percentile_disc(0.5) within group (order by r.duration_ms), 0)::int,
+    coalesce(percentile_disc(0.95) within group (order by r.duration_ms), 0)::int
+  from spans s
+  left join verdict_runs r on r.created_at >= s.since
+  group by s.span;
+$$;
+
+revoke execute on function admin_usage_stats() from public, anon, authenticated;
+grant execute on function admin_usage_stats() to service_role;
+
+-- 사용량 상위 **로그인 사용자**. 익명은 uid가 사람이 아니라 브라우저 한 벌이라(§2.3) 줄 세울 의미가 없다.
+-- 이메일은 그대로 내보내지 않는다 — 이 화면의 잠금은 `ADMIN_SLUG` 은닉뿐이라(access.ts),
+-- 여기 뜨는 순간 주소를 아는 사람에게 계정 목록이 된다. 본인 사용자를 알아볼 만큼만 남기고 가린다.
+create or replace function admin_top_callers(limit_n int default 10)
+returns table (
+  email_masked  text,
+  runs          bigint,
+  ai_called     bigint,
+  cached        bigint,
+  total_tokens  bigint,
+  last_at       timestamptz
+)
+language sql
+security definer
+set search_path = public, auth
+as $$
+  select
+    -- 첫 글자 + 도메인만 남긴다. `^(.).*(.)@`처럼 앞뒤 두 글자를 남기면 **로컬부가 한 글자인 주소가
+    -- 아예 매치되지 않아 원문 그대로 나간다** — 가리기가 조용히 실패하는 쪽이라 이 형태를 쓴다.
+    regexp_replace(u.email, '^(.).*@', '\1***@') as email_masked,
+    count(r.id),
+    coalesce(sum(r.ai_called), 0),
+    coalesce(sum(r.cached), 0),
+    coalesce(sum(r.prompt_tokens + r.output_tokens), 0),
+    max(r.created_at)
+  from verdict_runs r
+  join auth.users u on u.id = r.requested_by
+  where not r.was_anonymous and u.email is not null
+  group by u.email
+  order by coalesce(sum(r.ai_called), 0) desc, count(r.id) desc
+  limit greatest(1, least(limit_n, 50));
+$$;
+
+revoke execute on function admin_top_callers(int) from public, anon, authenticated;
+grant execute on function admin_top_callers(int) to service_role;

@@ -39,10 +39,24 @@ export const RESPONSE_SCHEMA = {
 
 type GenerateContentResponse = {
   candidates?: { content?: { parts?: { text?: string }[] } }[];
+  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
 };
 
 /**
- * 판정 한 건. 성공하면 파싱된 JSON을, 어떤 이유로든 실패하면 `null`을 돌려준다.
+ * 호출 한 번이 실제로 쓴 토큰. **청구는 호출 수가 아니라 토큰으로 매겨지므로** 이 값이 비용이다.
+ *
+ * 응답에 `usageMetadata`가 없으면 0으로 남긴다 — 추정하지 않는다. 운영 화면에서
+ * "호출은 있는데 토큰이 0"이 보이면 모델이 이 필드를 안 준다는 뜻이고, 그건 그것대로 사실이다.
+ */
+export type Usage = { promptTokens: number; outputTokens: number };
+
+const NO_USAGE: Usage = { promptTokens: 0, outputTokens: 0 };
+
+/**
+ * 판정 한 건. 성공하면 파싱된 JSON과 토큰 사용량을, 어떤 이유로든 실패하면 `data: null`을 돌려준다.
+ *
+ * **실패해도 `usage`는 돌려준다.** 응답을 받고 나서 실패한 경우(파싱 실패)에도 토큰은 이미 청구되기
+ * 때문이다 — 실패분을 0으로 세면 장부가 실제 청구보다 작아진다.
  *
  * 반환값을 검증하지 않는다 — 그건 `validateVerdict`의 일이고, 그래야 "모델 출력을 신뢰하지 않는다"가
  * 한 곳에서만 구현된다.
@@ -51,13 +65,16 @@ type GenerateContentResponse = {
  * "판정하지 못했습니다" 한 문장으로 뭉개져 나가므로, 키가 없는 것인지·쿼터가 찬 것인지·
  * 느려서 끊긴 것인지 밖에서 구분할 방법이 여기 말고는 없다.
  */
-export async function callGemini(profileText: string, sourceText: string): Promise<unknown | null> {
+export async function callGemini(
+  profileText: string,
+  sourceText: string,
+): Promise<{ data: unknown | null; usage: Usage }> {
   // env.ts와 달리 여기서는 throw하지 않는다. 키가 없으면 전건 '애매'로 흡수되는 편이 낫다.
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     // 설정 누락은 재시도로 낫지 않는다. 사람이 손대야 하므로 유일하게 error다.
     log.error("gemini.failed", { reason: "no_api_key" });
-    return null;
+    return { data: null, usage: NO_USAGE };
   }
 
   const controller = new AbortController();
@@ -84,27 +101,39 @@ export async function callGemini(profileText: string, sourceText: string): Promi
     if (!res.ok) {
       // 429(쿼터)와 5xx(모델 장애)를 가르는 건 status뿐이다. 본문은 키가 섞일 수 있어 넣지 않는다.
       log.warn("gemini.failed", { reason: "http_error", status: res.status });
-      return null;
+      return { data: null, usage: NO_USAGE };
     }
 
     const body = (await res.json()) as GenerateContentResponse;
+    // 본문을 받은 뒤로는 어떻게 끝나든 토큰이 청구된 것이다. 아래 두 실패 경로가 이 값을 같이 들고 나간다.
+    const usage: Usage = {
+      promptTokens: body.usageMetadata?.promptTokenCount ?? 0,
+      outputTokens: body.usageMetadata?.candidatesTokenCount ?? 0,
+    };
+
     const text = body.candidates?.[0]?.content?.parts?.[0]?.text;
     if (typeof text !== "string") {
       // 안전필터에 걸리면 candidates가 비어서 온다 — 200이라 위에서 안 걸린다.
       log.warn("gemini.failed", { reason: "empty_body" });
-      return null;
+      return { data: null, usage };
     }
 
-    return JSON.parse(text);
+    try {
+      return { data: JSON.parse(text), usage };
+    } catch (e) {
+      // 파싱 실패는 아래 catch로 흘려보내면 토큰을 잃는다 — 이미 청구된 호출이라 여기서 따로 받는다.
+      log.warn("gemini.failed", { reason: "parse", message: errorMessage(e) });
+      return { data: null, usage };
+    }
   } catch (e) {
-    // 타임아웃(abort) · 네트워크 오류 · JSON 파싱 실패가 모두 여기로 온다.
+    // 타임아웃(abort) · 네트워크 오류가 여기로 온다. 응답 본문을 못 받은 경우라 토큰을 알 수 없다.
     // 타임아웃만 따로 세는 이유는 그것만 대책이 다르기 때문이다 — TIMEOUT_MS나 병렬 수를 조정한다.
     const timedOut = e instanceof Error && e.name === "AbortError";
     log.warn("gemini.failed", {
-      reason: timedOut ? "timeout" : "network_or_parse",
+      reason: timedOut ? "timeout" : "network",
       message: errorMessage(e),
     });
-    return null;
+    return { data: null, usage: NO_USAGE };
   } finally {
     clearTimeout(timer);
   }

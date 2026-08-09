@@ -13,6 +13,10 @@ import { CAPITAL_AREA_SIDOS, SIDO_NAMES } from "@/lib/sources/region";
  *
  * 스키마를 건드리지 않으려고 집계 함수(RPC)나 뷰 대신 `count: exact, head: true` 병렬 조회를 쓴다.
  * 13,662행이면 순차 스캔으로 충분하다 — 1차 필터에 인덱스를 걸지 않은 것과 같은 판단이다 (§5.0.1).
+ *
+ * **사용자·사용량 블록만 예외로 RPC를 쓴다** (schema.sql §2.8). 취향이 아니라 PostgREST로
+ * 불가능해서다: `auth.users`는 노출되는 스키마가 아니고, `sum()`·`group by`가 쿼리 문법에 없다.
+ * 행을 다 받아와 세는 우회로는 `verdict_runs`가 페이지뷰마다 쌓이는 순간 무너진다.
  */
 
 /**
@@ -45,6 +49,11 @@ export type SyncStatus = {
   source: string;
   /** 마지막 실행 (성공·실패 무관) */
   startedAt: string | null;
+  /**
+   * `null`이면 그 실행은 **끝나지 않았다.** 행은 시작할 때 만들어지고 끝날 때 갱신되므로
+   * (`sync/run.ts`), 함수가 중간에 죽으면 `finished_at`도 `error`도 없는 행이 남는다.
+   * 화면이 이걸 안 보면 죽은 실행이 '완료'로 표시된다 — 정확히 그 버그가 있었다.
+   */
   finishedAt: string | null;
   /** 0이 아니면 중단된 것이다 — 다음 갱신이 이 페이지부터 이어받는다 (§4) */
   lastPage: number | null;
@@ -61,9 +70,71 @@ export type SyncStatus = {
   runCount: number;
 };
 
+/**
+ * 방문 → 조건 등록 → 로그인의 세 단계.
+ *
+ * ⚠️ **`total`은 사람 수가 아니다.** `proxy.ts`가 쿠키 없는 화면 요청마다 익명 세션을 만들므로
+ * 크롤러 방문이 그대로 섞인다 (§1.1). 아래 칸들과 나란히 놓아야 의미가 생긴다 —
+ * `total`만 튀고 `anonProfiled`가 안 움직이면 사람이 아니라 봇이 훑고 있는 것이다.
+ */
+export type UserCounts = {
+  total: Num;
+  anon: Num;
+  identified: Num;
+  /** 익명인 채로 조건까지 저장한 세션 */
+  anonProfiled: Num;
+  /** 로그인하고 조건까지 저장한 계정 */
+  identifiedProfiled: Num;
+};
+
+/** 한 기간의 사용량 합계. `verdict_runs` 장부에서 나온다 (§2.7) */
+export type UsageSpan = {
+  runs: Num;
+  requested: Num;
+  cached: Num;
+  gateBlocked: Num;
+  /** **비용의 분자.** 실제로 Gemini에 보낸 건수 */
+  aiCalled: Num;
+  aiFailed: Num;
+  promptTokens: Num;
+  outputTokens: Num;
+  cacheErrors: Num;
+  saveErrors: Num;
+  p50Ms: Num;
+  p95Ms: Num;
+};
+
+/** 사용량 상위 로그인 사용자. 이메일은 DB 함수가 가려서 준다 (schema.sql §2.8) */
+export type TopCaller = {
+  emailMasked: string;
+  runs: number;
+  aiCalled: number;
+  cached: number;
+  totalTokens: number;
+  lastAt: string | null;
+};
+
+export type Usage = {
+  all: UsageSpan;
+  week: UsageSpan;
+  today: UsageSpan;
+  topCallers: TopCaller[];
+};
+
+export type Scraps = {
+  total: Num;
+  /** 스크랩한 사용자 수 · 스크랩된 정책 수. 표본에서 센다 (`sampled`가 잘렸는지 말해준다) */
+  users: Num;
+  policies: Num;
+  sampled: Num;
+};
+
 export type AdminStats = {
   /** 집계 전체에 걸린 시간. DB가 살아 있는지·느려졌는지를 이 숫자로 본다 */
   dbMs: number;
+  users: UserCounts;
+  usage: Usage;
+  scraps: Scraps;
   policies: { total: Num; youth: Num; gov24: Num; latestRegisteredAt: string | null };
   categories: Slice[];
   regions: Slice[];
@@ -88,10 +159,25 @@ export type AdminStats = {
     scores: Slice[];
     /** 점수 분포가 몇 건을 보고 센 것인지. total보다 작으면 잘린 것이다 */
     scoreSample: Num;
+    /**
+     * 서로 다른 조건 조합의 수 (표본 기준, 분모는 `scoreSample`).
+     * **캐시 효율을 사용자 수보다 잘 설명한다** — 서명이 흩어질수록 같은 정책을 여러 번 판정한다.
+     */
+    signatures: Num;
     latestAt: string | null;
   };
   sync: SyncStatus[];
 };
+
+/**
+ * Gemini 단가 (USD / 100만 토큰). **0이면 화면이 비용을 계산하지 않고 토큰만 보여준다.**
+ *
+ * ⚠️ 여기 숫자를 지어내지 않는다. 토큰 수는 API 응답에서 온 사실이지만 단가는 아니고,
+ * 틀린 단가로 계산한 금액은 사실인 척하는 거짓말이다. **Google AI Studio 콘솔에서
+ * `MODEL`(`gemini.ts`)의 실제 단가를 확인해 채운 뒤 확인 날짜를 같이 적는다.**
+ * 모델을 바꾸면 여기도 같이 바꿔야 한다 — 그래서 §5.1.2 실측과 같은 자리에 둔다.
+ */
+export const PRICE_PER_1M = { input: 0, output: 0, checkedOn: "" };
 
 /** 값은 절대 내보내지 않는다 — 설정 여부만. `NEXT_PUBLIC_`은 빌드 시점에 인라인되므로 리터럴로 읽는다. */
 export function envStatus(): Array<{ key: string; set: boolean; server: boolean }> {
@@ -110,6 +196,11 @@ export function envStatus(): Array<{ key: string; set: boolean; server: boolean 
 export async function fetchAdminStats(db: SupabaseClient): Promise<AdminStats> {
   const started = performance.now();
 
+  // ⚠️ **두 묶음으로 나눠 기다린다. 한 번에 다 던지면 안 된다.**
+  // 이 블록들은 각자 안에서 또 병렬로 조회하므로 한 덩어리로 묶으면 40개 넘는 요청이 동시에 나간다.
+  // 사용자·사용량 블록을 여기에 그냥 더했더니 **엉뚱한 조회(`fillCounts`의 나이 조건)가 간헐적으로
+  // 실패했다** — 새 쿼리가 아니라 남의 쿼리가 터지고, 매번도 아니라서 제일 늦게 드러나는 종류다.
+  // 화면은 실패를 `—`로 정직하게 표시하지만, 있는 값을 못 읽는 것 자체가 문제다.
   const [policies, categories, regions, fill, verdicts, sync] = await Promise.all([
     policyCounts(db),
     categoryCounts(db),
@@ -119,7 +210,20 @@ export async function fetchAdminStats(db: SupabaseClient): Promise<AdminStats> {
     syncStatus(db),
   ]);
 
-  return { dbMs: Math.round(performance.now() - started), policies, categories, regions, fill, verdicts, sync };
+  const [users, usage, scraps] = await Promise.all([userCounts(db), usageStats(db), scrapCounts(db)]);
+
+  return {
+    dbMs: Math.round(performance.now() - started),
+    users,
+    usage,
+    scraps,
+    policies,
+    categories,
+    regions,
+    fill,
+    verdicts,
+    sync,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -160,6 +264,121 @@ async function latest(db: SupabaseClient, table: string, column: string): Promis
 // ─────────────────────────────────────────────────────────────
 // 블록별 집계
 // ─────────────────────────────────────────────────────────────
+
+/**
+ * 사용자 3단계. `auth.users`는 PostgREST에 없어서 `admin_user_counts()` RPC로 읽는다 (§2.8).
+ *
+ * 함수가 없으면(스키마를 아직 안 올렸으면) 전부 `null`이다 — 0이 아니다.
+ * "사용자 0명"과 "못 읽었다"는 화면에서 달라야 한다.
+ */
+async function userCounts(db: SupabaseClient): Promise<UserCounts> {
+  const { data, error } = await db.rpc("admin_user_counts").maybeSingle();
+
+  if (error || !data) {
+    return { total: null, anon: null, identified: null, anonProfiled: null, identifiedProfiled: null };
+  }
+
+  const r = data as Record<string, number>;
+  return {
+    total: r.total ?? null,
+    anon: r.anon ?? null,
+    identified: r.identified ?? null,
+    anonProfiled: r.anon_profiled ?? null,
+    identifiedProfiled: r.identified_profiled ?? null,
+  };
+}
+
+const EMPTY_SPAN: UsageSpan = {
+  runs: null,
+  requested: null,
+  cached: null,
+  gateBlocked: null,
+  aiCalled: null,
+  aiFailed: null,
+  promptTokens: null,
+  outputTokens: null,
+  cacheErrors: null,
+  saveErrors: null,
+  p50Ms: null,
+  p95Ms: null,
+};
+
+/**
+ * 호출·토큰 장부 (§2.7). 전체 / 최근 7일 / 오늘을 한 번에 받아 나눈다.
+ *
+ * **`verdicts` 행 수로 갈음할 수 없다** — 실패분은 저장되지 않고, upsert가 재판정을 덮어쓰며,
+ * 캐시 적중은 행을 만들지 않는다. 그 셋이 전부 비용 판단에 필요한 값이다.
+ */
+async function usageStats(db: SupabaseClient): Promise<Usage> {
+  const [spans, callers] = await Promise.all([
+    db.rpc("admin_usage_stats"),
+    db.rpc("admin_top_callers", { limit_n: 10 }),
+  ]);
+
+  const bySpan = new Map<string, UsageSpan>();
+  if (!spans.error) {
+    for (const row of (spans.data ?? []) as Record<string, number | string>[]) {
+      bySpan.set(String(row.span), {
+        runs: Number(row.runs),
+        requested: Number(row.requested),
+        cached: Number(row.cached),
+        gateBlocked: Number(row.gate_blocked),
+        aiCalled: Number(row.ai_called),
+        aiFailed: Number(row.ai_failed),
+        promptTokens: Number(row.prompt_tokens),
+        outputTokens: Number(row.output_tokens),
+        cacheErrors: Number(row.cache_errors),
+        saveErrors: Number(row.save_errors),
+        p50Ms: Number(row.p50_ms),
+        p95Ms: Number(row.p95_ms),
+      });
+    }
+  }
+
+  const topCallers = callers.error
+    ? []
+    : ((callers.data ?? []) as Record<string, string | number | null>[]).map((row) => ({
+        emailMasked: String(row.email_masked ?? "—"),
+        runs: Number(row.runs ?? 0),
+        aiCalled: Number(row.ai_called ?? 0),
+        cached: Number(row.cached ?? 0),
+        totalTokens: Number(row.total_tokens ?? 0),
+        lastAt: (row.last_at as string | null) ?? null,
+      }));
+
+  return {
+    all: bySpan.get("all") ?? EMPTY_SPAN,
+    week: bySpan.get("week") ?? EMPTY_SPAN,
+    today: bySpan.get("today") ?? EMPTY_SPAN,
+    topCallers,
+  };
+}
+
+/** 스크랩 표본 상한. 사용자·정책 종류 수는 `distinct`가 필요해 집계 쿼리로는 못 센다. */
+const SCRAP_SAMPLE_MAX = 5000;
+
+/**
+ * 스크랩 지표. **사용자가 적극적으로 한 유일한 행동**이라 참여도를 이것으로 본다.
+ *
+ * 총 건수만 정확한 집계고, 사용자·정책 종류 수는 표본에서 센다 (`scoreCounts`와 같은 방식).
+ * 개별 사용자가 무엇을 담았는지는 읽지 않는다 — id 두 개만 받는다.
+ */
+async function scrapCounts(db: SupabaseClient): Promise<Scraps> {
+  const [total, sample] = await Promise.all([
+    n(db.from("scraps").select("user_id", { count: "exact", head: true })),
+    db.from("scraps").select("user_id, policy_id").limit(SCRAP_SAMPLE_MAX),
+  ]);
+
+  if (sample.error) return { total, users: null, policies: null, sampled: null };
+
+  const rows = (sample.data ?? []) as Array<{ user_id: string; policy_id: string }>;
+  return {
+    total,
+    users: new Set(rows.map((r) => r.user_id)).size,
+    policies: new Set(rows.map((r) => r.policy_id)).size,
+    sampled: rows.length,
+  };
+}
 
 async function policyCounts(db: SupabaseClient): Promise<AdminStats["policies"]> {
   const [total, youth, gov24, latestRegisteredAt] = await Promise.all([
@@ -242,16 +461,24 @@ const SCORE_SAMPLE_MAX = 5000;
 /**
  * 점수는 저장하지 않고 `checks` 길이에서 유도한다 (§5.6). PostgREST로는 배열 길이를 못 세므로
  * 판정 행을 상한까지 받아 여기서 센다. 판정 내용은 읽지 않는다 — verdict와 checks 길이뿐이다.
+ *
+ * **서명 다양성도 같은 표본에서 센다.** 조회를 하나 더 던질 이유가 없고, 어차피 분모가 같다.
+ * 서명은 해시 문자열이라 개인을 가리키지 않는다 — 세는 것은 종류 수뿐이다.
  */
-async function scoreCounts(db: SupabaseClient): Promise<{ scores: Slice[]; sample: Num }> {
-  const { data, error } = await db.from("verdicts").select("verdict, checks").limit(SCORE_SAMPLE_MAX);
-  if (error) return { scores: [], sample: null };
+async function scoreCounts(db: SupabaseClient): Promise<{ scores: Slice[]; sample: Num; signatures: Num }> {
+  const { data, error } = await db
+    .from("verdicts")
+    .select("verdict, checks, profile_signature")
+    .limit(SCORE_SAMPLE_MAX);
+  if (error) return { scores: [], sample: null, signatures: null };
 
-  const rows = (data ?? []) as Array<{ verdict: string; checks: string[] }>;
+  const rows = (data ?? []) as Array<{ verdict: string; checks: string[]; profile_signature: string }>;
   const counted = new Map<Score, number>();
+  const signatures = new Set<string>();
   for (const r of rows) {
     const s = scoreOf({ verdict: r.verdict as "eligible" | "unclear" | "ineligible", checks: r.checks ?? [] });
     counted.set(s, (counted.get(s) ?? 0) + 1);
+    signatures.add(r.profile_signature);
   }
 
   return {
@@ -260,6 +487,7 @@ async function scoreCounts(db: SupabaseClient): Promise<{ scores: Slice[]; sampl
       count: counted.get(s) ?? 0,
     })),
     sample: rows.length,
+    signatures: signatures.size,
   };
 }
 
@@ -292,6 +520,7 @@ async function verdictCounts(db: SupabaseClient): Promise<AdminStats["verdicts"]
     latestAt,
     scores: scored.scores,
     scoreSample: scored.sample,
+    signatures: scored.signatures,
   };
 }
 

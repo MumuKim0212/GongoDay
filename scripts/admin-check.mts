@@ -60,6 +60,19 @@ console.log(`  아님인데 blockers 빔 ${num(s.verdicts.ineligibleNoBlockers)}
 for (const v of s.verdicts.byVerdict) console.log(`  ${v.label.padEnd(12)} ${num(v.count)}`);
 for (const d of s.verdicts.byDecider) console.log(`  ${d.label.padEnd(12)} ${num(d.count)}`);
 
+console.log("\n[사용자]");
+console.log(`  전체 세션 ${num(s.users.total)} · 익명 ${num(s.users.anon)} · 로그인 ${num(s.users.identified)}`);
+console.log(`  조건 등록  익명 ${num(s.users.anonProfiled)} · 로그인 ${num(s.users.identifiedProfiled)}`);
+console.log(`  스크랩 ${num(s.scraps.total)} (사용자 ${num(s.scraps.users)} · 정책 ${num(s.scraps.policies)})`);
+
+console.log("\n[호출 · 비용]");
+for (const [label, u] of [["누적", s.usage.all], ["최근 7일", s.usage.week], ["오늘", s.usage.today]] as const) {
+  console.log(
+    `  ${label.padEnd(8)} 배치 ${num(u.runs)} · 요청 ${num(u.requested)} · 캐시 ${num(u.cached)} · 게이트 ${num(u.gateBlocked)} · 호출 ${num(u.aiCalled)} (실패 ${num(u.aiFailed)}) · 토큰 ${num(u.promptTokens)}+${num(u.outputTokens)}`,
+  );
+}
+console.log(`  상위 로그인 사용자 ${s.usage.topCallers.length}명`);
+
 console.log("\n[수집]");
 for (const r of s.sync) {
   console.log(`  ${r.source.padEnd(6)} 성공 ${r.lastSuccessAt ?? "없음"} · 실행 ${r.runCount}건 · last_page ${r.lastPage} · ${r.error ?? "오류 없음"}`);
@@ -76,7 +89,62 @@ const nulls = [
 ].filter((v) => v === null).length;
 check(nulls === 0, "조회 실패 0건", `${nulls}건 실패`);
 
-check(s.policies.total === 13662, "전체 13,662건", num(s.policies.total));
+// ── 사용자 · 사용량 ────────────────────────────────
+// **RPC가 없으면 전 칸이 null이다.** 스키마를 안 올린 것과 "사용자가 0명"은 다르고,
+// 화면도 그 둘을 다르게 말한다 — 여기서 먼저 갈라준다.
+check(s.users.total !== null, "admin_user_counts() 가 있다 (없으면 schema.sql의 §2.8을 올려야 한다)");
+if (s.users.total !== null) {
+  check(
+    (s.users.anon ?? 0) + (s.users.identified ?? 0) === s.users.total,
+    "익명 + 로그인 = 전체 세션",
+    `${num(s.users.anon)} + ${num(s.users.identified)} vs ${num(s.users.total)}`,
+  );
+  check((s.users.anonProfiled ?? 0) <= (s.users.anon ?? 0), "조건 등록한 익명 ≤ 익명 전체");
+  check(
+    (s.users.identifiedProfiled ?? 0) <= (s.users.identified ?? 0),
+    "조건 등록한 로그인 ≤ 로그인 전체",
+  );
+}
+
+check(s.usage.all.runs !== null, "admin_usage_stats() 가 있다");
+if (s.usage.all.runs !== null) {
+  const u = s.usage.all;
+  // 요청은 캐시 + 게이트 + AI + (빈 프로필분)로 나뉜다. 앞 셋이 요청을 넘으면 집계가 틀린 것이다.
+  check(
+    (u.cached ?? 0) + (u.gateBlocked ?? 0) + (u.aiCalled ?? 0) <= (u.requested ?? 0),
+    "캐시 + 게이트 + 호출 ≤ 요청",
+    `${num(u.cached)} + ${num(u.gateBlocked)} + ${num(u.aiCalled)} vs ${num(u.requested)}`,
+  );
+  check((u.aiFailed ?? 0) <= (u.aiCalled ?? 0), "실패 ≤ 호출");
+  // 기간은 누적의 부분집합이다. 오늘 > 7일이면 날짜 경계(Asia/Seoul)가 깨진 것이다.
+  check((s.usage.today.aiCalled ?? 0) <= (s.usage.week.aiCalled ?? 0), "오늘 호출 ≤ 최근 7일");
+  check((s.usage.week.aiCalled ?? 0) <= (u.aiCalled ?? 0), "최근 7일 호출 ≤ 누적");
+  // 호출이 있는데 토큰이 0이면 usageMetadata가 안 오고 있다는 뜻이다 — 비용 집계가 통째로 죽는다.
+  if ((u.aiCalled ?? 0) > 0) {
+    check(
+      (u.promptTokens ?? 0) > 0,
+      "호출이 있으면 토큰도 있다 (0이면 usageMetadata가 안 온다)",
+      `호출 ${num(u.aiCalled)} · 토큰 ${num(u.promptTokens)}`,
+    );
+  }
+  // 이메일이 그대로 나오면 마스킹 정규식이 깨진 것이다 — 은닉뿐인 화면에 계정 목록이 뜬다.
+  check(
+    s.usage.topCallers.every((c) => c.emailMasked.includes("***")),
+    "상위 사용자 이메일이 가려져 있다",
+    s.usage.topCallers.map((c) => c.emailMasked).join(", "),
+  );
+}
+
+check(s.scraps.total !== null, "스크랩 집계를 읽었다");
+
+// 수집은 단조 증가한다 — 공고가 새로 등록되면 늘고 줄 이유가 없다. **등호로 박으면 정상적인
+// 증가에 검사가 깨진다** (실제로 13,662 → 13,691이 되면서 깨졌다). 이 줄이 잡으려는 것은
+// 특정 숫자가 아니라 '수집이 통째로 깨져 목록이 비는 것'이므로 하한만 본다.
+check(
+  (s.policies.total ?? 0) >= 13662,
+  "전체 13,662건 이상 (기준선: 2026-08 전량 수집)",
+  num(s.policies.total),
+);
 check(
   (s.policies.youth ?? 0) + (s.policies.gov24 ?? 0) === s.policies.total,
   "소스별 합 = 전체",
@@ -95,9 +163,17 @@ check((s.regions.find((r) => r.label.includes("판별 실패"))?.count ?? 0) > 0
 const audiences = s.fill.find((f) => f.label === "사용자구분 있음")?.count ?? 0;
 check(audiences > 0 && audiences <= (s.policies.gov24 ?? 0), "사용자구분은 정부24에만 있다", num(audiences));
 
+// ⚠️ **이건 하한이 아니라 범위다.** 값이 오르는 것도 이상 신호이기 때문이다 —
+// 이 숫자가 낮다는 사실이 `summary`·`support_text`를 프롬프트에 반드시 넣는 근거이므로
+// (stats.ts `fillCounts`), 크게 오르면 소스 스키마가 바뀐 것이고 프롬프트 설계를 다시 봐야 한다.
+// 실측 33.7%에서 반올림 경계로만 흔들리는 것까지 실패로 세지 않도록 ±3%p를 준다.
 const youthElig = s.fill.find((f) => f.base === "youth")?.count ?? 0;
-const youthPct = ((youthElig / (s.policies.youth ?? 1)) * 100).toFixed(1);
-check(youthPct === "33.7", "온통청년 지원대상 채움률 33.7%", `${youthPct}%`);
+const youthPct = (youthElig / (s.policies.youth ?? 1)) * 100;
+check(
+  Math.abs(youthPct - 33.7) <= 3,
+  "온통청년 지원대상 채움률 33.7% ±3%p (벗어나면 프롬프트 설계 근거를 다시 본다)",
+  `${youthPct.toFixed(1)}%`,
+);
 
 // ── 판정 (작업 6 이후에야 의미가 생긴다) ──────────────
 const v = s.verdicts;
@@ -116,6 +192,13 @@ if ((v.total ?? 0) === 0) {
     (v.quoteVerified ?? 0) <= (v.ai ?? 0),
     "인용 검증 통과 ≤ AI 판정 (코드 게이트는 인용을 남기지 않는다)",
     `${num(v.quoteVerified)} / ${num(v.ai)}`,
+  );
+
+  // 서명 종류는 표본 안에 있으므로 표본 크기를 넘을 수 없다. 0이면 distinct 계산이 깨진 것이다.
+  check(
+    (v.signatures ?? 0) > 0 && (v.signatures ?? 0) <= (v.scoreSample ?? 0),
+    "서명 종류 수가 0 < n ≤ 표본",
+    `${num(v.signatures)} / ${num(v.scoreSample)}`,
   );
 
   // 0이 아니어도 실패는 아니다 — AI가 blockers를 비워 보낼 수 있다. 수치를 눈에 띄게 남긴다.

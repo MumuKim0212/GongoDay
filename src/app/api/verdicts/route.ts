@@ -142,11 +142,19 @@ export async function POST(req: Request) {
   // 캐시 — (정책, 서명)이 같으면 다시 판정하지 않는다 (F-16). 서명이 다르면 안 잡히고 재판정된다.
   // **사용자로 걸러지 않는다.** 판정은 서명과 원문에만 의존하므로 남이 부른 것도 그대로 쓴다 (§2.3).
   const db = createAdminClient();
-  const { data: cached } = await db
+  const { data: cached, error: cacheError } = await db
     .from("verdicts")
     .select("policy_id, verdict, decided_by, reason, quote, quote_verified, blockers, checks")
     .eq("profile_signature", signature)
     .in("policy_id", policyIds);
+
+  // ⚠️ **이 실패는 조용히 돈이 된다.** 캐시를 못 읽으면 빈 것으로 취급되어 게이트 통과분이 전건
+  // 재호출된다 — 사용자에게는 정상으로 보이고 화면 어디에도 흔적이 없다. 위 프로필 조회처럼
+  // 요청을 세우지는 않는다 (판정은 정상적으로 나오므로 §7 "어떤 실패도 화면을 비우지 않는다"),
+  // 대신 로그와 `verdict_runs`에 남겨 비용이 튄 이유를 나중에 되짚을 수 있게 한다.
+  if (cacheError) {
+    log.error("verdicts.cache_failed", { count: policyIds.length, message: cacheError.message });
+  }
 
   const verdicts: Record<string, DecidedVerdict> = {};
   for (const row of cached ?? []) {
@@ -161,6 +169,10 @@ export async function POST(req: Request) {
     /** Gemini에 실제로 보낸 건수. 완료 판정 1·4가 이 값이 0인지를 본다 */
     ai_called: 0,
     ai_failed: 0,
+    /** 실제 청구 단위. 호출 수가 아니라 이 값이 비용이다 (§5.1.3) */
+    prompt_tokens: 0,
+    output_tokens: 0,
+    cache_error: Boolean(cacheError),
     save_error: null as string | null,
   };
 
@@ -233,7 +245,11 @@ export async function POST(req: Request) {
       await Promise.all(
         forAi.map(async (policy) => {
           const sourceText = buildSourceText(policy);
-          const raw = await callGemini(profileText, sourceText);
+          const { data: raw, usage } = await callGemini(profileText, sourceText);
+
+          // 실패분도 더한다 — 응답을 받고 나서 실패한 호출은 토큰이 이미 청구됐다 (gemini.ts).
+          stats.prompt_tokens += usage.promptTokens;
+          stats.output_tokens += usage.outputTokens;
 
           if (raw === null) {
             // 호출 자체가 실패했다 (키·네트워크·타임아웃). 이 카드만 '애매'이고 나머지는 정상이다 (§7).
@@ -289,9 +305,33 @@ export async function POST(req: Request) {
         }
       }
 
+      const durationMs = Date.now() - startedAt;
+
       // 호출 비용 장부 (PRD §7.7). `ai_called`가 0인지를 완료 판정 1·4가 보고,
       // `cached`와의 비율이 캐시가 실제로 듣고 있는지를 말해준다.
-      log.info("verdicts.batch", { ...stats, durationMs: Date.now() - startedAt });
+      log.info("verdicts.batch", { ...stats, durationMs });
+
+      // 같은 장부를 DB에도 남긴다. 로그는 Vercel 대시보드에서만 읽히고 앱이 되읽을 수 없어서
+      // 운영 화면이 "캐시가 듣고 있나 · 토큰을 얼마나 썼나"에 답하지 못했다 (§2.7).
+      // **판정 결과와 무관하므로 실패해도 응답을 건드리지 않는다** — 저장 실패와 같은 취급이다.
+      const { error: ledgerError } = await db.from("verdict_runs").insert({
+        requested_by: user.id,
+        was_anonymous: Boolean(user.is_anonymous),
+        profile_signature: signature,
+        requested: stats.requested,
+        cached: stats.cached,
+        gate_blocked: stats.gate_blocked,
+        ai_called: stats.ai_called,
+        ai_failed: stats.ai_failed,
+        prompt_tokens: stats.prompt_tokens,
+        output_tokens: stats.output_tokens,
+        cache_error: stats.cache_error,
+        save_error: stats.save_error !== null,
+        duration_ms: durationMs,
+      });
+      if (ledgerError) {
+        log.warn("verdicts.ledger_failed", { message: ledgerError.message });
+      }
 
       line({ t: "done", stats });
       controller.close();
