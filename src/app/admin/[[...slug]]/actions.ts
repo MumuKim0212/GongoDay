@@ -1,7 +1,10 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+
 import { isAdminAllowed } from "@/lib/admin/access";
 import { log } from "@/lib/log";
+import { setLoginRequired } from "@/lib/settings";
 import { isSourceName, runSync, syncRejected, type SyncResult } from "@/lib/sync/run";
 
 /**
@@ -26,4 +29,22 @@ export async function syncAction(slug: string[] | undefined, source: string): Pr
   }
 
   return runSync(source, "admin");
+}
+
+/** 로그인 요구 토글 (조건 입력·판정만 대상, PRD §9.5). */
+export async function setLoginRequiredAction(
+  slug: string[] | undefined,
+  value: boolean,
+): Promise<{ error: string | null }> {
+  if (!isAdminAllowed(slug)) {
+    log.warn("settings.rejected", { reason: "forbidden", trigger: "admin" });
+    return { error: "권한이 없습니다." };
+  }
+
+  const result = await setLoginRequired(value);
+  if (!result.error) {
+    // 운영 화면 자체도 이 값을 표시하므로 캐시를 버려 즉시 반영한다.
+    revalidatePath("/admin", "layout");
+  }
+  return result;
 }

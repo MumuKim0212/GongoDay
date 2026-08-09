@@ -1,5 +1,9 @@
+import { redirect } from "next/navigation";
+
+import { signOut } from "@/app/profile/actions";
 import { BackToList } from "@/components/BackToList";
 import { ProfileForm, type ProfileValues } from "@/components/ProfileForm";
+import { isLoginRequired } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
 
 /** 매 요청 조회한다 — 사용자마다 다른 값이고, 저장 직후 새로고침이 옛 값을 보이면 안 된다. */
@@ -15,6 +19,12 @@ export default async function ProfilePage() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // 관리자가 로그인 요구를 켰으면 익명(또는 세션 없음)은 조건 입력에 들어올 수 없다 (PRD §9.5).
+  // 목록 열람은 이 화면을 거치지 않으므로 계속 열려 있다.
+  if ((user === null || user.is_anonymous) && (await isLoginRequired())) {
+    redirect("/login?redirect=/profile");
+  }
+
   const { data: profile, error } = user
     ? await supabase.from("profiles").select(PROFILE_COLUMNS).eq("id", user.id).maybeSingle()
     : { data: null, error: null };
@@ -25,14 +35,25 @@ export default async function ProfilePage() {
           캐시를 버려 새로 받고, 안 고쳤으면 떠나온 목록이 그대로 돌아온다 */}
       <BackToList className="btn btn-ghost px-0">← 목록으로</BackToList>
 
-      <header className="mt-3">
-        <h1 className="text-title">내 조건</h1>
-        <p className="text-body mt-2">
-          <strong>모두 선택 사항입니다.</strong> 채울수록 정확해지고, 생년과 사는 곳만으로도 동작합니다.
-        </p>
-        <p className="text-small text-muted mt-1">
-          비워둔 항목은 조건으로 보지 않습니다 — 그 항목 때문에 정책이 걸러지는 일은 없습니다.
-        </p>
+      <header className="mt-3 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-title">내 조건</h1>
+          <p className="text-body mt-2">
+            <strong>모두 선택 사항입니다.</strong> 채울수록 정확해지고, 생년과 사는 곳만으로도 동작합니다.
+          </p>
+          <p className="text-small text-muted mt-1">
+            비워둔 항목은 조건으로 보지 않습니다 — 그 항목 때문에 정책이 걸러지는 일은 없습니다.
+          </p>
+        </div>
+
+        {/* 정식 로그인 상태에서만 의미가 있다 — 익명 사용자는 로그아웃할 계정이 없다 */}
+        {user && !user.is_anonymous ? (
+          <form action={signOut}>
+            <button type="submit" className="btn btn-ghost">
+              로그아웃
+            </button>
+          </form>
+        ) : null}
       </header>
 
       {/* 세션이 없으면 저장할 곳이 없다 (§7). 폼을 그려놓고 저장에서 실패시키면 입력이 통째로 날아간다 */}

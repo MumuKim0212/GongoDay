@@ -137,15 +137,29 @@ create index if not exists sync_runs_source_started_at_idx
   on sync_runs (source, started_at desc);
 
 -- ─────────────────────────────────────────────────────────────
+-- app_settings — 운영 토글 (단일 행)
+-- 관리자 화면에서 즉시 켜고 꺼야 해서 환경변수가 아니라 DB 값이다. 서버는 1분 TTL로 캐시해 읽는다.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists app_settings (
+  id            boolean primary key default true check (id),  -- 항상 한 행만 존재하도록 강제
+  require_login boolean not null default false
+);
+
+insert into app_settings (id, require_login)
+values (true, false)
+on conflict (id) do nothing;
+
+-- ─────────────────────────────────────────────────────────────
 -- RLS  §2.5
 -- policies / sync_runs 는 읽기만 공개. write 정책을 '아예 만들지 않는다' —
 -- service_role은 RLS를 우회하므로 수집 라우트는 정책 없이도 쓴다.
 -- ─────────────────────────────────────────────────────────────
-alter table policies  enable row level security;
-alter table profiles  enable row level security;
-alter table verdicts  enable row level security;
-alter table scraps    enable row level security;
-alter table sync_runs enable row level security;
+alter table policies     enable row level security;
+alter table profiles     enable row level security;
+alter table verdicts     enable row level security;
+alter table scraps       enable row level security;
+alter table sync_runs    enable row level security;
+alter table app_settings enable row level security;
 
 drop policy if exists policies_read_all on policies;
 create policy policies_read_all on policies

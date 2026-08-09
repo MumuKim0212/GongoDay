@@ -15,6 +15,7 @@ import {
   type Option,
 } from "@/lib/profile/schema";
 import { log } from "@/lib/log";
+import { isLoginRequired } from "@/lib/settings";
 import { CATEGORIES } from "@/lib/sources/category";
 import { createClient } from "@/lib/supabase/server";
 
@@ -36,6 +37,11 @@ export async function saveProfile(_prev: SaveState, formData: FormData): Promise
   // 익명 세션 생성 실패 (§7). 목록은 계속 보이지만 저장할 곳이 없다.
   if (!user) {
     return { ok: false, message: "세션이 없어 저장하지 못했습니다. 새로고침한 뒤 다시 시도해 주세요." };
+  }
+
+  // 화면이 이미 걸러주지만 **서버 액션은 화면과 따로 호출될 수 있다** (admin actions.ts와 같은 원칙).
+  if (user.is_anonymous && (await isLoginRequired())) {
+    return { ok: false, message: "로그인이 필요합니다. 새로고침한 뒤 로그인해 주세요." };
   }
 
   const thisYear = new Date().getFullYear();
@@ -97,6 +103,13 @@ export async function saveProfile(_prev: SaveState, formData: FormData): Promise
   // `revalidatePath`가 **먼저** 와야 한다. `redirect`는 제어 흐름 예외를 던져 뒤 코드가 실행되지
   // 않으므로(next `redirect` 문서 §Behavior), 순서가 바뀌면 캐시를 안 버린 채 옛 목록으로 간다.
   // 실패는 위에서 이미 돌아갔으므로 이 아래로 오는 것은 저장에 성공한 경우뿐이다.
+  redirect("/");
+}
+
+/** 정식 로그인 상태에서만 의미가 있다 — 화면이 익명 사용자에게는 버튼을 보이지 않는다. */
+export async function signOut(): Promise<void> {
+  const supabase = await createClient();
+  await supabase.auth.signOut();
   redirect("/");
 }
 

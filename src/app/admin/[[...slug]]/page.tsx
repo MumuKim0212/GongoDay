@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { AdminTabs } from "@/components/AdminTabs";
+import { LoginRequiredToggle } from "@/components/LoginRequiredToggle";
 import { SyncButton } from "@/components/SyncButton";
 import { isAdminAllowed, isAdminLocked } from "@/lib/admin/access";
 import { SOURCE_LABELS, envStatus, fetchAdminStats, type Num, type SyncStatus } from "@/lib/admin/stats";
+import { isLoginRequired } from "@/lib/settings";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /** 운영 화면이라 캐시하지 않는다 — 캐시된 수치는 여기서 거짓말이 된다. */
@@ -24,6 +26,7 @@ export default async function AdminPage({ params }: PageProps<"/admin/[[...slug]
   const locked = isAdminLocked();
   const env = envStatus();
   const hasServiceRole = env.some((e) => e.key === "SUPABASE_SERVICE_ROLE_KEY" && e.set);
+  const loginRequired = await isLoginRequired();
   // 집계는 RLS를 우회해야 읽힌다 (`verdicts`는 본인 행만 공개). 키가 없으면 환경 블록만 보여준다.
   const stats = hasServiceRole ? await fetchAdminStats(createAdminClient()) : null;
 
@@ -88,6 +91,10 @@ export default async function AdminPage({ params }: PageProps<"/admin/[[...slug]
                     11시간에 한 바퀴입니다 — 이 버튼은 <strong>지금 당장</strong> 한 바퀴 더 돌릴 때만 쓰고, 그냥
                     두면 크론이 마저 받아갑니다.
                   </p>
+                </div>
+
+                <div className="mt-4">
+                  <LoginRequiredToggle slug={slug} initial={loginRequired} />
                 </div>
 
                 <h3 className="mt-4 text-sm font-medium">환경 변수</h3>
