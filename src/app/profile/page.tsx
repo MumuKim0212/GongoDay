@@ -4,7 +4,6 @@ import { signOut } from "@/app/profile/actions";
 import { BackToList } from "@/components/BackToList";
 import { ProfileForm, type ProfileValues } from "@/components/ProfileForm";
 import { TelegramLinkSection } from "@/components/TelegramLinkSection";
-import { isLoginRequired } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
 
 /** 매 요청 조회한다 — 사용자마다 다른 값이고, 저장 직후 새로고침이 옛 값을 보이면 안 된다. */
@@ -20,9 +19,9 @@ export default async function ProfilePage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // 관리자가 로그인 요구를 켰으면 익명(또는 세션 없음)은 조건 입력에 들어올 수 없다 (PRD §9.5).
+  // 로그인 없이(또는 세션 없이)는 조건 입력에 들어올 수 없다 (PRD §9.5).
   // 목록 열람은 이 화면을 거치지 않으므로 계속 열려 있다.
-  if ((user === null || user.is_anonymous) && (await isLoginRequired())) {
+  if (user === null || user.is_anonymous) {
     redirect("/login?redirect=/profile");
   }
 

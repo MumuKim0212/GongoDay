@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { AdminTabs } from "@/components/AdminTabs";
-import { LoginRequiredToggle } from "@/components/LoginRequiredToggle";
 import { SyncButton } from "@/components/SyncButton";
 import { isAdminAllowed, isAdminLocked } from "@/lib/admin/access";
 import {
@@ -14,7 +13,6 @@ import {
   type Num,
   type SyncStatus,
 } from "@/lib/admin/stats";
-import { isLoginRequired } from "@/lib/settings";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /** 운영 화면이라 캐시하지 않는다 — 캐시된 수치는 여기서 거짓말이 된다. */
@@ -34,7 +32,6 @@ export default async function AdminPage({ params }: PageProps<"/admin/[[...slug]
   const locked = isAdminLocked();
   const env = envStatus();
   const hasServiceRole = env.some((e) => e.key === "SUPABASE_SERVICE_ROLE_KEY" && e.set);
-  const loginRequired = await isLoginRequired();
   // 집계는 RLS를 우회해야 읽힌다 (`verdicts`는 본인 행만 공개). 키가 없으면 환경 블록만 보여준다.
   const stats = hasServiceRole ? await fetchAdminStats(createAdminClient()) : null;
   // 시계는 한 번만 읽어 '기준 시각'으로 아래에 넘긴다 — 머리글에 적히는 시각과 수집 카드의
@@ -104,10 +101,6 @@ export default async function AdminPage({ params }: PageProps<"/admin/[[...slug]
                   </p>
                 </div>
 
-                <div className="mt-4">
-                  <LoginRequiredToggle slug={slug} initial={loginRequired} />
-                </div>
-
                 <h3 className="mt-4 text-sm font-medium">환경 변수</h3>
                 <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
                   {env.map((e) => (
@@ -155,7 +148,7 @@ export default async function AdminPage({ params }: PageProps<"/admin/[[...slug]
                 {
                   key: "users",
                   label: "사용자",
-                  content: <UsersSection users={stats.users} scraps={stats.scraps} loginRequired={loginRequired} />,
+                  content: <UsersSection users={stats.users} scraps={stats.scraps} />,
                 },
                 {
                   key: "usage",
@@ -292,11 +285,9 @@ type BarRow = { label: string; count: Num; hint?: string | null };
 function UsersSection({
   users,
   scraps,
-  loginRequired,
 }: {
   users: AdminStats["users"];
   scraps: AdminStats["scraps"];
-  loginRequired: boolean;
 }) {
   const profiled = sum(users.anonProfiled, users.identifiedProfiled);
 
@@ -329,8 +320,7 @@ function UsersSection({
           <p className="mt-2 text-xs text-gray-500">
             <strong>&lsquo;전체 세션&rsquo;은 사람 수가 아닙니다.</strong> 첫 방문마다 익명 세션이 하나씩
             생기므로(<code>proxy.ts</code>) 크롤러가 훑은 것도 여기 들어옵니다. 그래서 옆 칸들과 같이 봐야
-            합니다 — <strong>전체 세션만 늘고 조건 등록이 안 움직이면 사람이 아니라 봇입니다.</strong> 로그인
-            요구는 지금 {loginRequired ? <strong>켜져</strong> : <strong>꺼져</strong>} 있습니다.
+            합니다 — <strong>전체 세션만 늘고 조건 등록이 안 움직이면 사람이 아니라 봇입니다.</strong>
           </p>
           <p className="mt-1 text-xs text-gray-500">
             로그인은 익명 세션을 승격시키지 않고 <strong>별도 계정</strong>을 만듭니다(<code>login/actions.ts</code>)

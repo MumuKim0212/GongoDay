@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import { log } from "@/lib/log";
 import { PAGE_SIZE } from "@/lib/policies/query";
-import { isLoginRequired } from "@/lib/settings";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { applyGate, callAndValidate } from "@/lib/verdict/decide";
@@ -95,8 +94,8 @@ export async function POST(req: Request) {
     );
   }
 
-  // 관리자가 로그인 요구를 켰으면 익명은 판정을 부를 수 없다 (PRD §9.5).
-  if (user.is_anonymous && (await isLoginRequired())) {
+  // 로그인 없이는 판정을 부를 수 없다 (PRD §9.5).
+  if (user.is_anonymous) {
     return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
   }
 

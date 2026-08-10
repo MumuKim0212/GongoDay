@@ -15,7 +15,6 @@ import {
   type Option,
 } from "@/lib/profile/schema";
 import { log } from "@/lib/log";
-import { isLoginRequired } from "@/lib/settings";
 import { CATEGORIES } from "@/lib/sources/category";
 import { createClient } from "@/lib/supabase/server";
 import { buildDeepLink, createLinkToken } from "@/lib/telegram/link";
@@ -41,7 +40,7 @@ export async function saveProfile(_prev: SaveState, formData: FormData): Promise
   }
 
   // 화면이 이미 걸러주지만 **서버 액션은 화면과 따로 호출될 수 있다** (admin actions.ts와 같은 원칙).
-  if (user.is_anonymous && (await isLoginRequired())) {
+  if (user.is_anonymous) {
     return { ok: false, message: "로그인이 필요합니다. 새로고침한 뒤 로그인해 주세요." };
   }
 

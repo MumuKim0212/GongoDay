@@ -4,7 +4,7 @@ import { LoginForm } from "@/components/LoginForm";
 export const dynamic = "force-dynamic";
 
 /**
- * 로그인 (PRD §9.5) — 관리자가 "로그인 요구"를 켰을 때 조건 입력·판정 시점에만 이 화면으로 온다.
+ * 로그인 (PRD §9.5) — 조건 입력·판정 시점에 이 화면으로 온다.
  * 목록 열람은 로그인 없이 그대로 열려 있다.
  */
 export default async function LoginPage({
