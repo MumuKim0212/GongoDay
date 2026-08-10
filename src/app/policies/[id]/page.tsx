@@ -119,7 +119,8 @@ export default async function PolicyDetailPage({ params }: PageProps<"/policies/
             <ScoreBadge
               score={scoreOf(verdict)}
               checkCount={verdict.checks.length}
-              decidedBy={verdict.decided_by}
+              verdict={verdict.verdict}
+              reason={verdict.reason}
             />
           ) : null}
         </div>

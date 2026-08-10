@@ -46,3 +46,15 @@ export const SCORE_HINTS: Record<Score, string> = {
   2: "원문에 자격 조건이 적혀 있지 않습니다. 제한이 없어서일 수도, 원문에 빠졌을 수도 있으니 원문을 확인하세요.",
   1: "원문 근거로 자격을 충족하지 않습니다.",
 };
+
+/** 판정값의 등급 이름. 배지 툴팁 앞머리에 붙는다. */
+export const VERDICT_LABEL: Record<Verdict, string> = {
+  eligible: "적합",
+  unclear: "애매",
+  ineligible: "부적합",
+};
+
+/** 배지를 호버·탭했을 때 뜨는 한 줄. 등급 + AI(또는 게이트)가 준 사유 그대로다 — 새로 지어내지 않는다. */
+export function scoreHint(verdict: Verdict, reason: string | null, score: Score): string {
+  return `${VERDICT_LABEL[verdict]}. ${reason ?? SCORE_HINTS[score]}`;
+}

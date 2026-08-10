@@ -51,7 +51,8 @@ export function PolicyCard({
           <ScoreBadge
             score={score}
             checkCount={verdict.checks.length}
-            decidedBy={verdict.decided_by}
+            verdict={verdict.verdict}
+            reason={verdict.reason}
           />
         ) : judging ? (
           <VerdictBadgeSkeleton />

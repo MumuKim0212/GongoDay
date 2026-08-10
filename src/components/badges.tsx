@@ -1,4 +1,5 @@
-import { SCORE_HINTS, scoreLabel, type Score } from "@/lib/verdict/score";
+import { scoreHint, scoreLabel, type Score } from "@/lib/verdict/score";
+import type { Verdict } from "@/lib/verdict/validate";
 
 /**
  * 출처 표시 (F-03a · docs/DESIGN.md §4.2)
@@ -28,27 +29,36 @@ const SCORE_TAG: Record<Score, string> = {
   1: "tag-quiet",
 };
 
-/** `decided_by`를 함께 보여준다 — 코드로 확정한 것과 AI가 판정한 것은 신뢰의 성격이 다르다 (F-11b) */
+/**
+ * 호버·탭하면 등급 + 사유 한 줄이 뜬다. `<button>`이라 탭에서도 포커스를 받는다(iOS는 `<span
+ * tabIndex>`를 탭으로 포커스하지 않는다) — 그래서 보이기·숨기기에 JS 없이 `:hover`/`:focus`만 쓴다.
+ */
 export function ScoreBadge({
   score,
   checkCount,
-  decidedBy,
+  verdict,
+  reason,
 }: {
   score: Score;
   checkCount: number;
-  decidedBy?: "code" | "ai" | null;
+  verdict: Verdict;
+  reason: string | null;
 }) {
+  const hint = scoreHint(verdict, reason, score);
   return (
-    <span title={SCORE_HINTS[score]} className={`tag shrink-0 ${SCORE_TAG[score]}`}>
+    <button type="button" className={`tag group relative shrink-0 ${SCORE_TAG[score]}`}>
       <span className="tabular-nums font-semibold" aria-hidden>
-        {score}
+        {score}점.
       </span>
       <span className="sr-only">5점 만점에 {score}점 — </span>
       {scoreLabel(score, checkCount)}
-      {decidedBy ? (
-        <span className="opacity-70">{decidedBy === "code" ? "· 코드" : "· AI"}</span>
-      ) : null}
-    </span>
+      <span
+        aria-hidden
+        className="pointer-events-none absolute top-full right-0 z-20 mt-1.5 w-max max-w-[220px] rounded-sm bg-[var(--ink)] px-2 py-1.5 text-left text-micro whitespace-normal text-[var(--paper)] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100"
+      >
+        {hint}
+      </span>
+    </button>
   );
 }
 
