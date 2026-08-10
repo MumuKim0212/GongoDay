@@ -43,6 +43,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
     : { data: null };
 
   const profile = profileRow as unknown as (Profile & { interests: string[] }) | null;
+  const isLoggedIn = user !== null && !user.is_anonymous;
 
   // 스크랩만 보기 (F-20). RLS가 본인 행만 주므로 여기서 사용자를 한 번 더 거를 필요가 없다.
   const scrapsOnly = one(sp.scrap) === "1";
@@ -84,9 +85,14 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
             <span className="text-section">오늘공고</span>
           </span>
           {/* 프로필로 가는 문은 이 하나뿐이다. 목록 쪽에 같은 링크를 또 두면 기능이 겹친다.
-              조건이 없을 때만 채움이다 — 그때는 판정 버튼이 없으므로 채움은 여전히 화면에 하나다 (§5.1) */}
-          <Link href="/profile" className={profile ? "btn btn-secondary" : "btn btn-primary"}>
-            {profile ? "내 조건 수정" : "내 조건 입력하기"}
+              조건이 없을 때만 채움이다 — 그때는 판정 버튼이 없으므로 채움은 여전히 화면에 하나다 (§5.1)
+              로그인 전(익명 포함)에는 /profile이 서버에서 /login으로 튕기므로, 그 왕복 없이
+              바로 로그인으로 보낸다 (PRD §9.5). */}
+          <Link
+            href={isLoggedIn ? "/profile" : "/login?redirect=/profile"}
+            className={profile ? "btn btn-secondary" : "btn btn-primary"}
+          >
+            {profile ? "내 조건 수정" : isLoggedIn ? "내 조건 입력하기" : "로그인"}
           </Link>
         </div>
       </header>
