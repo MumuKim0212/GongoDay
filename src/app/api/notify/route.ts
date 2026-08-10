@@ -14,28 +14,40 @@ import { sendMessage } from "@/lib/telegram/client";
  * 텔레그램 알림 배치 — **매시간 크론 전용** (`.github/workflows/sync.yml`, `/api/sync` 다음 스텝).
  *
  * ```
- * policies.created_at 커서로 신규 정책 조회 (최대 MAX_POLICIES건)
+ * notify_checked_at이 null인 정책을 오래된 순으로 조회 (최대 MAX_POLICIES건)
  *   → 텔레그램 연동 사용자 전체 조회, 서명별로 묶는다
  *   → (정책, 서명) 조합을 verdicts 캐시로 우선 채운다 (§2.3과 같은 원리 — 서명이 같으면 공유)
- *   → 캐시 미스만 게이트 → AI 판정 → verdicts에 upsert
+ *   → 캐시 미스만 게이트 → AI 판정 (AI_CONCURRENCY건씩) → verdicts에 upsert
  *   → 점수가 사용자의 telegram_notify_min_score 이상이고 아직 안 보낸 조합만 발송
+ *   → 처리한 정책에 notify_checked_at을 찍는다
  * ```
  *
  * `/api/verdicts`와 인증·격리 원칙은 같다: `CRON_SECRET` Bearer, 개별 실패는 로그로 삼키고
  * 나머지를 막지 않는다. 다른 점은 응답 대상이 사람이 아니라 크론이라 스트림이 아니라 요약 JSON이다.
  *
- * **커서는 정책 단위다** (`notify_runs.cursor_after`, `runSync`의 `last_page`와 같은 이어받기).
- * 이번 배치가 정책을 MAX_POLICIES건 다 못 훑으면(수신자 × 정책이 많을 때) 커서를 끝까지
- * 전진시키지 않고 다음 크론이 이어받는다 — sync.ts의 `lastCompleted`와 같은 사고방식.
+ * **어디까지 했는지는 배치가 아니라 정책 행이 들고 있다** (`policies.notify_checked_at`).
+ * 시간 커서를 쓰지 않는 이유는 스키마 주석에 적혀 있다 — 수집이 100건을 한 문장으로 넣어
+ * `created_at`이 동률이고, 판정에 실패해 다시 봐야 하는 건을 커서로는 표현할 수 없다.
+ * 표시는 발송까지 끝난 뒤에 찍으므로 중간에 끊기면 그 정책들은 다음 배치가 그대로 다시 본다
+ * (캐시와 발송 이력이 있어 비용도 중복 발송도 늘지 않는다).
  */
 
 // 빼먹으면 로컬은 되고 배포에서만 끊긴다 (§4, §5.1.1과 같은 이유).
 export const maxDuration = 60;
 
-/** 한 배치가 조회하는 신규 정책 상한. 실측 후 조정 — 수신자 수만큼 (정책, 서명) 조합이 곱해진다. */
+/** 한 배치가 처리하는 미처리 정책 상한. 실측 후 조정 — 수신자 수만큼 (정책, 서명) 조합이 곱해진다. */
 const MAX_POLICIES = 50;
 
-/** notify.ts가 읽는 정책 칸. buildSourceText + checkGate가 읽는 칸(§5.3, §5.0) + 알림 메시지용 source_url. */
+/**
+ * 한 번에 띄우는 Gemini 호출 수. `/api/verdicts`의 한 페이지(10건)와 같은 값이다 —
+ * "건당 15초 × 10건 병렬이면 라우트 상한 60초 안에 들어간다"는 계산이 그 수를 전제로 한다 (§5.1.1).
+ *
+ * 여기서 세는 단위는 정책이 아니라 (정책 × 서명) 조합이라 전부 한꺼번에 띄우면 수백 건이 된다.
+ * 그러면 429로 무더기 실패하고, 실패분은 다음 배치로 밀려 매시간 같은 자리를 맴돈다.
+ */
+const AI_CONCURRENCY = 10;
+
+/** notify가 읽는 정책 칸. buildSourceText + checkGate가 읽는 칸(§5.3, §5.0) + 알림 메시지용 source_url. */
 const POLICY_COLUMNS = [
   "id",
   "title",
@@ -56,15 +68,25 @@ const POLICY_COLUMNS = [
   "audiences",
   "eligibility_codes",
   "source_url",
-  "created_at",
 ].join(",");
 
-type PolicyRow = PolicySourceFields &
-  PolicyConditions & { id: string; source_url: string | null; created_at: string };
+type PolicyRow = PolicySourceFields & PolicyConditions & { id: string; source_url: string | null };
 
 type Recipient = Profile & { id: string; telegram_chat_id: string; telegram_notify_min_score: number };
 
 type SignatureGroup = { profile: Profile; profileText: string; recipients: Recipient[] };
+
+type Stats = {
+  policiesFound: number;
+  checked: number;
+  recipients: number;
+  aiCalled: number;
+  aiFailed: number;
+  sent: number;
+  sendFailed: number;
+  promptTokens: number;
+  outputTokens: number;
+};
 
 export async function POST(req: Request) {
   const secret = process.env.CRON_SECRET;
@@ -80,47 +102,48 @@ export async function POST(req: Request) {
   const startedAt = Date.now();
   const db = createAdminClient();
 
-  const { data: prev } = await db
-    .from("notify_runs")
-    .select("cursor_after")
-    .is("error", null)
-    .order("started_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const cursorBefore: string | null = prev?.cursor_after ?? null;
-
   const { data: run, error: runError } = await db
     .from("notify_runs")
-    .insert({ cursor_before: cursorBefore })
+    .insert({ started_at: new Date().toISOString() })
     .select("id")
     .single();
   if (runError) log.error("notify.run_row_failed", { message: runError.message });
   const runId: string | undefined = run?.id;
 
+  const stats: Stats = {
+    policiesFound: 0,
+    checked: 0,
+    recipients: 0,
+    aiCalled: 0,
+    aiFailed: 0,
+    sent: 0,
+    sendFailed: 0,
+    promptTokens: 0,
+    outputTokens: 0,
+  };
+
   // MAX_POLICIES + 1을 가져와 "더 남았는지"(done)를 추가 쿼리 없이 판별한다.
-  let policiesQuery = db
+  const { data: policyRows, error: policyError } = await db
     .from("policies")
     .select(POLICY_COLUMNS)
+    .is("notify_checked_at", null)
     .order("created_at", { ascending: true })
     .limit(MAX_POLICIES + 1);
-  if (cursorBefore !== null) policiesQuery = policiesQuery.gt("created_at", cursorBefore);
 
-  const { data: policyRows, error: policyError } = await policiesQuery;
   if (policyError) {
     log.error("notify.policies_failed", { message: policyError.message });
-    await finishRun(db, runId, { error: policyError.message, cursor_before: cursorBefore, cursor_after: cursorBefore });
+    await finishRun(db, runId, { ...toRunFields(stats), error: policyError.message });
     return NextResponse.json({ error: "정책을 읽지 못했습니다." }, { status: 500 });
   }
 
   const fetched = (policyRows ?? []) as unknown as PolicyRow[];
   const done = fetched.length <= MAX_POLICIES;
   const policies = done ? fetched : fetched.slice(0, MAX_POLICIES);
-  // 이번 배치가 완전히 처리하는 마지막 정책의 created_at까지만 커서를 전진시킨다.
-  const cursorAfter = policies.length > 0 ? policies[policies.length - 1].created_at : cursorBefore;
+  stats.policiesFound = policies.length;
 
   if (policies.length === 0) {
-    await finishRun(db, runId, { cursor_before: cursorBefore, cursor_after: cursorAfter });
-    return NextResponse.json({ policiesFound: 0, recipients: 0, sent: 0, done: true });
+    await finishRun(db, runId, toRunFields(stats));
+    return NextResponse.json({ ...stats, done: true });
   }
 
   const { data: recipientRows, error: recipientError } = await db
@@ -130,35 +153,18 @@ export async function POST(req: Request) {
     .not("telegram_notify_min_score", "is", null);
   if (recipientError) {
     log.error("notify.recipients_failed", { message: recipientError.message });
-    await finishRun(db, runId, {
-      error: recipientError.message,
-      cursor_before: cursorBefore,
-      cursor_after: cursorAfter,
-    });
+    await finishRun(db, runId, { ...toRunFields(stats), error: recipientError.message });
     return NextResponse.json({ error: "수신자를 읽지 못했습니다." }, { status: 500 });
   }
   const recipients = (recipientRows ?? []) as unknown as Recipient[];
-
-  const stats = {
-    policiesFound: policies.length,
-    recipients: recipients.length,
-    aiCalled: 0,
-    aiFailed: 0,
-    sent: 0,
-    sendFailed: 0,
-    promptTokens: 0,
-    outputTokens: 0,
-  };
+  stats.recipients = recipients.length;
 
   if (recipients.length === 0) {
-    // 받을 사람이 없어도 커서는 전진시킨다 — 안 그러면 다음 배치가 이 정책들을 다시 "신규"로
-    // 보고, 그사이 새로 연동한 사람에게 며칠 지난 공고가 몰려간다.
-    await finishRun(db, runId, {
-      ...toRunFields(stats),
-      cursor_before: cursorBefore,
-      cursor_after: cursorAfter,
-    });
-    return NextResponse.json({ ...stats, done: true });
+    // 받을 사람이 없어도 처리한 것으로 표시한다 — 안 그러면 다음 배치가 이 정책들을 계속
+    // 신규로 보고, 그사이 새로 연동한 사람에게 며칠 지난 공고가 몰려간다.
+    stats.checked = await markChecked(db, policies.map((p) => p.id));
+    await finishRun(db, runId, toRunFields(stats));
+    return NextResponse.json({ ...stats, done });
   }
 
   // 서명별로 프로필을 하나만 남긴다 — 같은 조건인 사용자는 캐시 조회·AI 호출을 공유한다 (§2.3과 동일).
@@ -201,43 +207,52 @@ export async function POST(req: Request) {
 
   const toSave: (DecidedVerdict & { policy_id: string; profile_signature: string })[] = [];
   const toNotify: { policy: PolicyRow; signature: string; verdict: DecidedVerdict }[] = [];
+  const aiJobs: { policy: PolicyRow; signature: string; group: SignatureGroup }[] = [];
 
-  await Promise.all(
-    policies.flatMap((policy) =>
-      signatures.map(async (signature) => {
-        const key = `${policy.id}:${signature}`;
-        const cached = cache.get(key);
-        if (cached) {
-          toNotify.push({ policy, signature, verdict: cached });
-          return;
-        }
+  // 캐시·게이트는 호출이 없어 여기서 다 끝난다. 남는 것만 AI로 넘긴다.
+  for (const policy of policies) {
+    for (const [signature, group] of bySignature) {
+      const cached = cache.get(`${policy.id}:${signature}`);
+      if (cached) {
+        toNotify.push({ policy, signature, verdict: cached });
+        continue;
+      }
 
-        const group = bySignature.get(signature);
-        if (!group) return;
+      const gated = applyGate(policy, group.profile);
+      if (gated !== null) {
+        toSave.push({ ...gated, policy_id: policy.id, profile_signature: signature });
+        toNotify.push({ policy, signature, verdict: gated });
+        continue;
+      }
 
-        const gated = applyGate(policy, group.profile);
-        if (gated !== null) {
-          toSave.push({ ...gated, policy_id: policy.id, profile_signature: signature });
-          toNotify.push({ policy, signature, verdict: gated });
-          return;
-        }
+      if (group.profileText === "") continue; // 빈 프로필은 판정 자체를 시도하지 않는다 (§5)
 
-        if (group.profileText === "") return; // 빈 프로필은 판정 자체를 시도하지 않는다 (§5)
+      aiJobs.push({ policy, signature, group });
+    }
+  }
 
+  // 판정하지 못한 정책. **표시하지 않고 남겨 다음 배치가 다시 본다** — 커서였다면 이미 지나가
+  // 영영 못 보던 자리다. 성공한 조합은 verdicts에 저장돼 다음 배치에서 캐시로 잡히므로 다시 부르지 않는다.
+  const aiFailedPolicies = new Set<string>();
+
+  for (let i = 0; i < aiJobs.length; i += AI_CONCURRENCY) {
+    await Promise.all(
+      aiJobs.slice(i, i + AI_CONCURRENCY).map(async ({ policy, signature, group }) => {
         stats.aiCalled++;
         const { decided, usage, failed } = await callAndValidate(group.profileText, policy);
         stats.promptTokens += usage.promptTokens;
         stats.outputTokens += usage.outputTokens;
         if (failed) {
           stats.aiFailed++;
-          return; // 판정 못 함 — 저장도 알림도 하지 않는다. 다음 배치가 다시 시도한다.
+          aiFailedPolicies.add(policy.id);
+          return;
         }
 
         toSave.push({ ...decided, policy_id: policy.id, profile_signature: signature });
         toNotify.push({ policy, signature, verdict: decided });
       }),
-    ),
-  );
+    );
+  }
 
   if (toSave.length > 0) {
     const { error } = await db
@@ -263,8 +278,9 @@ export async function POST(req: Request) {
         stats.sent++;
         sentPairs.push({ policy_id: policy.id, profile_id: recipient.id });
       } else {
-        // 실패는 이력에 남기지 않는다 — 다음 배치가 재시도한다. 일시 장애와 영구 차단(403)을
-        // 구분해 후자만 연동 해제하는 것은 지금은 하지 않는다.
+        // **발송 실패는 재시도하지 않는다** (정책은 아래에서 그대로 처리 완료로 표시된다).
+        // 봇 차단(403)은 영구 상태라 재시도로 낫지 않는데, 남겨두면 그 한 사람 때문에 배치가
+        // 매시간 같은 정책을 다시 붙들고 앞으로 나아가지 못한다. 판정 실패와 다루는 방향이 반대인 이유다.
         stats.sendFailed++;
         log.warn("notify.send_failed", { profileId: recipient.id, reason: result.reason });
       }
@@ -272,15 +288,20 @@ export async function POST(req: Request) {
   }
 
   if (sentPairs.length > 0) {
-    const { error } = await db.from("telegram_notified").insert(sentPairs);
+    // 이미 있는 조합은 무시한다 — 한 건의 중복이 insert 전체를 실패시키면 이번 배치의 발송 이력이
+    // 통째로 사라져 다음 시간에 같은 알림이 다시 간다.
+    const { error } = await db
+      .from("telegram_notified")
+      .upsert(sentPairs, { onConflict: "policy_id,profile_id", ignoreDuplicates: true });
     if (error) log.error("notify.mark_sent_failed", { count: sentPairs.length, message: error.message });
   }
 
-  await finishRun(db, runId, {
-    ...toRunFields(stats),
-    cursor_before: cursorBefore,
-    cursor_after: cursorAfter,
-  });
+  stats.checked = await markChecked(
+    db,
+    policyIds.filter((id) => !aiFailedPolicies.has(id)),
+  );
+
+  await finishRun(db, runId, toRunFields(stats));
 
   const durationMs = Date.now() - startedAt;
   log.info("notify.batch", { ...stats, done, durationMs });
@@ -288,18 +309,29 @@ export async function POST(req: Request) {
   return NextResponse.json({ ...stats, done });
 }
 
-function toRunFields(stats: {
-  policiesFound: number;
-  recipients: number;
-  aiCalled: number;
-  aiFailed: number;
-  sent: number;
-  sendFailed: number;
-  promptTokens: number;
-  outputTokens: number;
-}) {
+/**
+ * 처리 완료 표시. 여기가 곧 "다음 배치가 이 정책을 다시 보지 않는다"는 뜻이다.
+ *
+ * 실패해도 응답을 세우지 않는다 — 다음 배치가 같은 정책을 다시 보면 되고, 캐시(`verdicts`)와
+ * 발송 이력(`telegram_notified`)이 있어 AI 호출도 중복 발송도 늘지 않는다.
+ */
+async function markChecked(db: ReturnType<typeof createAdminClient>, ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const { error } = await db
+    .from("policies")
+    .update({ notify_checked_at: new Date().toISOString() })
+    .in("id", ids);
+  if (error) {
+    log.error("notify.mark_checked_failed", { count: ids.length, message: error.message });
+    return 0;
+  }
+  return ids.length;
+}
+
+function toRunFields(stats: Stats) {
   return {
     policies_found: stats.policiesFound,
+    checked: stats.checked,
     recipients: stats.recipients,
     ai_called: stats.aiCalled,
     ai_failed: stats.aiFailed,

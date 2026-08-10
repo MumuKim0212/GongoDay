@@ -1169,15 +1169,18 @@ PRD §1의 결론과 정확히 반대 방향처럼 보이지만 다르다. n8n �
 `.github/workflows/sync.yml`이 매시간 두 소스를 수집한 뒤 이어서 호출한다. `/api/sync`와 인증이 같다(`CRON_SECRET` Bearer).
 
 ```
-policies.created_at 커서로 신규 정책 조회 (최대 MAX_POLICIES건 + 1로 "더 남았는지" 판별)
+notify_checked_at이 null인 정책을 created_at 오름차순으로 조회 (최대 MAX_POLICIES건 + 1로 "더 남았는지" 판별)
   → 텔레그램 연동 사용자 전체 조회, profileSignature()로 묶는다
   → (정책, 서명) 조합을 verdicts 캐시로 우선 채운다 — /api/verdicts와 같은 캐시를 그대로 재사용
-  → 캐시 미스만 applyGate() → 통과분 callAndValidate() → verdicts에 upsert
+  → 캐시 미스만 applyGate() → 통과분 callAndValidate() (AI_CONCURRENCY건씩) → verdicts에 upsert
   → 정책 × 서명이 아니라 정책 × 사용자 단위로: scoreOf(verdict) >= telegram_notify_min_score
     이고 telegram_notified에 없는 조합만 발송, 성공하면 이력에 기록
+  → 처리한 정책에 notify_checked_at을 찍는다 (판정 실패한 정책은 빼고)
 ```
 
-**"신규 정책"의 기준은 `policies.created_at`이다.** `fetched_at`은 재수집 때마다 갱신되어(§2.1) 커서로 못 쓴다 — `created_at`은 insert 시에만 찍히므로(`toPolicy()`가 이 컬럼을 절대 채우지 않는다) 정확히 "이 배치가 처음 보는 정책"만 가려낸다.
+**"신규 정책"의 기준은 시간 커서가 아니라 정책 행의 표시(`policies.notify_checked_at`)다.** `fetched_at`은 재수집 때마다 갱신되어(§2.1) 기준으로 못 쓰고, `created_at`도 **커서로는 못 쓴다** — `now()`는 문장 단위로 고정이라 수집이 한 번에 100건을 upsert하면(§4) 그 100건의 `created_at`이 전부 같다. `created_at > 마지막 값`으로 넘어가는 순간 같은 시각의 나머지가 통째로, 조용히 누락된다. `created_at`은 "오래된 것부터"라는 순서 기준으로만 남는다.
+
+**표시는 발송까지 끝난 뒤에 찍는다.** 실행이 60초 상한에 걸려 끊기면 그 정책들은 표시되지 않은 채 남아 다음 배치가 그대로 다시 본다 — 판정은 `verdicts` 캐시에, 발송은 `telegram_notified`에 이미 남아 있어 AI 호출도 중복 발송도 늘지 않는다. 반대로 커서였다면 실행 중간 상태(`cursor_after`가 아직 null인 행)를 다음 배치가 "커서 없음"으로 읽어 **맨 처음부터 다시 시작**했다.
 
 **캐시는 `/api/verdicts`와 완전히 같은 `verdicts` 테이블을 쓴다.** 서명이 같은 사용자는 (정책, 서명) 조합 하나로 커버되므로, 연동 사용자가 늘어도 조건이 겹치는 만큼 Gemini 호출은 늘지 않는다.
 
@@ -1185,9 +1188,14 @@ policies.created_at 커서로 신규 정책 조회 (최대 MAX_POLICIES건 + 1�
 
 **게이트/AI 판정 로직은 `lib/verdict/decide.ts`로 뽑아 `/api/verdicts`와 공유한다** — `applyGate()`(코드 게이트 → `DecidedVerdict | null`)와 `callAndValidate()`(Gemini 호출 → 검증까지). 캐시 조회·저장·통계 집계·응답 형태(스트림 vs 배치 요약)는 두 라우트가 각자 처리한다 — 억지로 합치면 스트리밍이라는 제어 흐름과 배치 요약이라는 제어 흐름이 부자연스럽게 얽힌다.
 
-**커서 이어받기는 `sync_runs.last_page`와 같은 사고방식이다.** `notify_runs.cursor_after`가 다음 배치의 시작점이다. 이번 배치가 신규 정책을 `MAX_POLICIES`건 넘게 발견하면(수신자가 많을수록 조합이 곱으로 늘어난다) 초과분은 다음 크론이 처리하고, 커서는 이번에 완전히 처리한 마지막 정책까지만 전진한다.
+**이어받기는 `sync_runs.last_page`와 같은 사고방식이다.** 이번 배치가 미처리 정책을 `MAX_POLICIES`건 넘게 발견하면(수신자가 많을수록 조합이 곱으로 늘어난다) 초과분은 표시되지 않은 채 남아 다음 크론이 처리하고, 응답은 `done: false`로 나간다.
 
-**전송 실패는 이력에 남기지 않는다** — 다음 배치가 재시도한다. 일시 장애와 영구 차단(403, 봇이 차단됨)을 구분해 후자만 자동으로 연동을 해제하는 것은 지금은 하지 않는다 (열린 질문).
+**Gemini 호출은 `AI_CONCURRENCY`(10)건씩 끊어서 띄운다** — `/api/verdicts`의 한 페이지와 같은 수다. 여기서 세는 단위는 정책이 아니라 (정책 × 서명) 조합이라 전부 한꺼번에 띄우면 수백 건이 되고, "건당 15초 × 10건 병렬이면 60초 안에 들어간다"는 §5.1.1의 계산이 깨진다.
+
+**판정 실패와 전송 실패는 반대로 다룬다.**
+
+- **판정(AI) 실패한 정책은 표시하지 않는다** — 다음 배치가 다시 본다. 일시적 실패(429·타임아웃)라 재시도로 낫고, 같은 배치에서 성공한 조합은 `verdicts`에 저장돼 캐시로 잡히므로 다시 부르지 않는다.
+- **전송 실패는 재시도하지 않는다** (이력에 남기지 않지만 정책은 처리 완료로 표시된다). 봇 차단(403)은 영구 상태라 재시도로 낫지 않는데, 남겨두면 그 한 사람 때문에 배치가 매시간 같은 정책을 붙들고 앞으로 나아가지 못한다. 403만 구분해 자동으로 연동을 해제하는 것은 지금은 하지 않는다 (열린 질문).
 
 ### 11.3 스키마
 
@@ -1195,8 +1203,9 @@ policies.created_at 커서로 신규 정책 조회 (최대 MAX_POLICIES건 + 1�
 profiles.telegram_chat_id / telegram_notify_min_score   — 연동 상태 · 알림 임계값(1~5, null=꺼짐)
 telegram_link_tokens  (token, profile_id, expires_at, used_at)
 telegram_notified     (policy_id, profile_id) 복합 pk   — 중복 발송 방지
-notify_runs           (sync_runs/verdict_runs와 같은 장부 패턴, cursor_before/cursor_after)
-policies.created_at   — 알림 커서 기준. fetched_at과 달리 재수집으로 갱신되지 않는다
+notify_runs           (sync_runs/verdict_runs와 같은 장부 패턴. policies_found − checked = 다음 배치가 다시 볼 건수)
+policies.created_at        — 알림 배치의 순서 기준. fetched_at과 달리 재수집으로 갱신되지 않는다
+policies.notify_checked_at — 알림 배치가 처리했는가. null = 미처리. 기존 행은 채운 채로 시작한다
 ```
 
 RLS는 §2.5 표를 따른다 — 셋 다 service_role 전용, 정책 없음.

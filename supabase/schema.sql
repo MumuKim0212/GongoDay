@@ -62,14 +62,34 @@ create table if not exists policies (
 create index if not exists policies_source_registered_at_idx
   on policies (source_registered_at desc);
 
--- 텔레그램 알림 배치의 커서 기준 §11. fetched_at과 달리 재수집으로 갱신되지 않는다 —
--- insert 시에만 찍혀야 "이 배치가 처음 보는 정책"을 정확히 가려낼 수 있다.
--- upsert 쿼리(toPolicy 등)가 이 컬럼을 절대 채우지 않아야 한다 — 채우면 매번 now()로 덮여 fetched_at과 같아진다.
+-- 텔레그램 알림 배치가 읽는 두 칸 §11.
 -- `create table if not exists`는 이미 있는 테이블에 컬럼을 추가하지 않으므로 alter로 분리한다.
+--
+-- created_at — 정책이 처음 들어온 시각. fetched_at과 달리 재수집으로 갱신되지 않으므로(§2.1)
+-- 알림 배치가 "오래된 것부터" 처리하는 순서 기준이 된다.
+-- upsert 쿼리(toPolicy 등)가 이 컬럼을 절대 채우지 않아야 한다 — 채우면 매번 now()로 덮여 fetched_at과 같아진다.
 alter table policies add column if not exists created_at timestamptz not null default now();
 
-create index if not exists policies_created_at_idx
-  on policies (created_at);
+-- notify_checked_at — 알림 배치가 이 정책을 처리했는가. null이면 아직 안 본 것이다.
+--
+-- **`created_at > 마지막 값` 커서로는 이 일을 못 한다.** `now()`는 문장 단위로 고정이라
+-- 한 번에 100건씩 upsert하는 수집(`sync/run.ts`)에서 그 100건이 전부 같은 created_at을 갖는다 —
+-- 커서가 그 값을 지나가는 순간 같은 시각의 나머지가 통째로, 조용히 누락된다.
+-- 판정에 실패해 다음 배치가 다시 봐야 하는 건도 커서로는 표현할 수 없다 (이미 지나가 버렸다).
+-- 행마다 표시하면 둘 다 사라진다.
+--
+-- **기존 행은 '이미 처리한 것'으로 시작해야 한다** — 안 그러면 첫 배치가 수집해 둔 전량을
+-- 신규로 보고 옛 공고를 알린다. `add column`의 default가 기존 행을 채우고, 곧바로 default를
+-- 지워 앞으로 들어오는 정책만 null(=미처리)로 남게 한다.
+alter table policies add column if not exists notify_checked_at timestamptz default now();
+alter table policies alter column notify_checked_at drop default;
+
+-- 미처리분만 오래된 순으로 훑는다. 처리된 행은 인덱스에서 빠지므로 정책이 쌓여도 조회 비용은 그대로다.
+create index if not exists policies_notify_pending_idx
+  on policies (created_at) where notify_checked_at is null;
+
+-- 커서 방식에서 쓰던 인덱스. 위 partial 인덱스가 대신하고 created_at을 그 밖에서 읽는 곳은 없다.
+drop index if exists policies_created_at_idx;
 
 -- ─────────────────────────────────────────────────────────────
 -- profiles — 내 조건 (정부24 코드 체계 기준)  §2.2
@@ -239,15 +259,16 @@ create table if not exists telegram_notified (
 -- ─────────────────────────────────────────────────────────────
 -- notify_runs — 알림 배치 한 번의 장부. sync_runs·verdict_runs와 같은 패턴이다.
 --
--- cursor_after가 다음 배치의 시작점이다 (policies.created_at 기준) — sync_runs.last_page와
--- 같은 이어받기 방식. 상한에 걸려 다 처리하지 못하면 완전히 처리된 지점까지만 전진시키고
--- done=false로 응답해 다음 크론이 이어받는다.
+-- 어디까지 처리했는지는 이 표가 아니라 `policies.notify_checked_at`이 들고 있다 —
+-- 실행이 중간에 끊겨도(60초 상한) 표시된 행까지가 그대로 남아 다음 배치가 이어받는다.
+-- `policies_found`와 `checked`의 차이가 "다음 배치가 다시 볼 건수"다 (판정 실패분).
 -- ─────────────────────────────────────────────────────────────
 create table if not exists notify_runs (
   id             uuid primary key default gen_random_uuid(),
   started_at     timestamptz not null default now(),
   finished_at    timestamptz,
   policies_found int not null default 0,
+  checked        int not null default 0,
   recipients     int not null default 0,
   ai_called      int not null default 0,
   ai_failed      int not null default 0,
@@ -255,10 +276,13 @@ create table if not exists notify_runs (
   send_failed    int not null default 0,
   prompt_tokens  int not null default 0,
   output_tokens  int not null default 0,
-  cursor_before  timestamptz,
-  cursor_after   timestamptz,
   error          text
 );
+
+-- 커서 방식에서 쓰던 칸. 위 create table은 이미 있는 표를 건드리지 않으므로 alter로 지운다.
+alter table notify_runs add column if not exists checked int not null default 0;
+alter table notify_runs drop column if exists cursor_before;
+alter table notify_runs drop column if exists cursor_after;
 
 create index if not exists notify_runs_started_at_idx
   on notify_runs (started_at desc);

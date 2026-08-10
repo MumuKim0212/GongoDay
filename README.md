@@ -37,7 +37,7 @@
        → 같은 조건 + 같은 정책 조합은 캐시 재사용(재호출 없음)
 ```
 
-텔레그램은 `/profile`에서 딥링크로 연결하고, 매시간 크론이 수집 다음 단계로 새 정책만 판정해 고른 점수 이상인 것만 보냅니다. 자세한 설계 근거는 [docs/PRD.md](docs/PRD.md) §7, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §11을 참고하세요.
+텔레그램은 `/profile`에서 딥링크로 연결하고, 매시간 크론이 수집 다음 단계로 새 정책만 판정해 고른 점수 이상인 것만 보냅니다. 자세한 설계 근거는 [docs/PRD.md](docs/PRD.md) §1.1·§6.4, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §11을 참고하세요.
 
 ## 실행
 

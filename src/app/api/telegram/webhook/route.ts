@@ -64,15 +64,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // **update가 아니라 upsert다.** 조건을 한 번도 저장하지 않은 계정은 `profiles` 행 자체가 없고
+  // (행은 `saveProfile`에서만 생긴다), update는 0행을 고치고도 에러를 주지 않는다 —
+  // 토큰만 소비하고 "연결되었습니다"라고 답하는데 실제로는 아무것도 연결되지 않는다.
   const { error: profileError } = await db
     .from("profiles")
-    .update({ telegram_chat_id: String(chatId) })
-    .eq("id", tokenRow.profile_id);
+    .upsert({ id: tokenRow.profile_id, telegram_chat_id: String(chatId) }, { onConflict: "id" });
 
-  // 이 계정에 이미 다른 chat_id가 물려 있는 등 유니크 제약 위반일 수 있다 — 토큰은 소비하지 않는다
+  // 이 텔레그램 계정이 이미 다른 계정에 물려 있으면 유니크 인덱스에 걸린다 — 토큰은 소비하지 않는다
   if (profileError) {
     log.error("telegram.webhook_link_failed", { message: profileError.message });
-    await sendMessage(String(chatId), "이미 다른 텔레그램 계정이 연결되어 있습니다.");
+    await sendMessage(
+      String(chatId),
+      "이 텔레그램 계정은 이미 다른 계정에 연결되어 있습니다. 그쪽에서 연동을 해제한 뒤 다시 시도해 주세요.",
+    );
     return NextResponse.json({ ok: true });
   }
 
