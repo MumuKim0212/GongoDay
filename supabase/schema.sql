@@ -62,6 +62,15 @@ create table if not exists policies (
 create index if not exists policies_source_registered_at_idx
   on policies (source_registered_at desc);
 
+-- 텔레그램 알림 배치의 커서 기준 §11. fetched_at과 달리 재수집으로 갱신되지 않는다 —
+-- insert 시에만 찍혀야 "이 배치가 처음 보는 정책"을 정확히 가려낼 수 있다.
+-- upsert 쿼리(toPolicy 등)가 이 컬럼을 절대 채우지 않아야 한다 — 채우면 매번 now()로 덮여 fetched_at과 같아진다.
+-- `create table if not exists`는 이미 있는 테이블에 컬럼을 추가하지 않으므로 alter로 분리한다.
+alter table policies add column if not exists created_at timestamptz not null default now();
+
+create index if not exists policies_created_at_idx
+  on policies (created_at);
+
 -- ─────────────────────────────────────────────────────────────
 -- profiles — 내 조건 (정부24 코드 체계 기준)  §2.2
 -- 모든 필드가 선택이다. 비어 있으면 게이트가 그 항목을 건너뛴다 ("모르면 통과", §5.0)
@@ -79,6 +88,23 @@ create table if not exists profiles (
   interests       text[] not null default '{job,housing}',  -- 관심 분야 §2.1.4 / PRD §6.1
   updated_at      timestamptz not null default now()
 );
+
+-- 텔레그램 알림 연동 §11. 익명 세션에는 허용하지 않는다 — 쿠키가 지워지면 연동이 끊기고,
+-- 매시간 크론이 익명 유저를 만들 수 있어(§1.1) 익명에게 허용하면 쓸모없는 연동이 쌓인다.
+-- 서버 액션이 user.is_anonymous로 막는다 (스키마 제약이 아니다).
+-- `create table if not exists`는 이미 있는 테이블에 컬럼을 추가하지 않으므로 alter로 분리한다.
+alter table profiles add column if not exists telegram_chat_id text;          -- 연동되면 채워진다. null = 미연동
+alter table profiles add column if not exists telegram_notify_min_score int;  -- 1~5. null = 알림 꺼짐(기본값)
+
+do $$ begin
+  alter table profiles add constraint profiles_telegram_notify_min_score_check
+    check (telegram_notify_min_score is null or telegram_notify_min_score between 1 and 5);
+exception when duplicate_object then null;
+end $$;
+
+-- 한 텔레그램 계정이 여러 프로필에 물리는 것을 막는다 — 안 그러면 알림이 조용히 다른 계정으로 샌다
+create unique index if not exists profiles_telegram_chat_id_idx
+  on profiles (telegram_chat_id) where telegram_chat_id is not null;
 
 -- ─────────────────────────────────────────────────────────────
 -- verdicts — AI 판정 결과 (캐시 겸용)  §2.3
@@ -182,6 +208,62 @@ create index if not exists verdict_runs_created_at_idx
   on verdict_runs (created_at desc);
 
 -- ─────────────────────────────────────────────────────────────
+-- telegram_link_tokens — 딥링크 연동용 일회성 토큰
+-- 프로필 화면에서 "텔레그램으로 연결"을 누르면 한 행이 생기고,
+-- 사용자가 텔레그램에서 /start <token>을 보내면 웹훅이 이 행으로 profile_id를 되찾는다.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists telegram_link_tokens (
+  token      text primary key,               -- crypto.randomUUID() — 추정 불가능해야 한다
+  profile_id uuid not null references auth.users (id) on delete cascade,
+  expires_at timestamptz not null,           -- 발급 후 짧게(10분). 만료분은 웹훅이 거절한다
+  used_at    timestamptz,                    -- null이면 미사용. 재사용 방지
+  created_at timestamptz not null default now()
+);
+
+create index if not exists telegram_link_tokens_profile_id_idx
+  on telegram_link_tokens (profile_id);
+
+-- ─────────────────────────────────────────────────────────────
+-- telegram_notified — (정책, 사용자) 단위 발송 이력. 중복 알림 방지.
+--
+-- verdicts를 이 용도로 못 쓴다 — verdicts는 프로필이 아니라 서명 단위 공유 캐시라서(§2.3),
+-- 같은 조건을 가진 사용자 중 한 명에게 보낸 것을 다른 사용자에게도 보낸 것으로 잘못 취급하게 된다.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists telegram_notified (
+  policy_id  uuid not null references policies (id) on delete cascade,
+  profile_id uuid not null references auth.users (id) on delete cascade,
+  sent_at    timestamptz not null default now(),
+  primary key (policy_id, profile_id)
+);
+
+-- ─────────────────────────────────────────────────────────────
+-- notify_runs — 알림 배치 한 번의 장부. sync_runs·verdict_runs와 같은 패턴이다.
+--
+-- cursor_after가 다음 배치의 시작점이다 (policies.created_at 기준) — sync_runs.last_page와
+-- 같은 이어받기 방식. 상한에 걸려 다 처리하지 못하면 완전히 처리된 지점까지만 전진시키고
+-- done=false로 응답해 다음 크론이 이어받는다.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists notify_runs (
+  id             uuid primary key default gen_random_uuid(),
+  started_at     timestamptz not null default now(),
+  finished_at    timestamptz,
+  policies_found int not null default 0,
+  recipients     int not null default 0,
+  ai_called      int not null default 0,
+  ai_failed      int not null default 0,
+  sent           int not null default 0,
+  send_failed    int not null default 0,
+  prompt_tokens  int not null default 0,
+  output_tokens  int not null default 0,
+  cursor_before  timestamptz,
+  cursor_after   timestamptz,
+  error          text
+);
+
+create index if not exists notify_runs_started_at_idx
+  on notify_runs (started_at desc);
+
+-- ─────────────────────────────────────────────────────────────
 -- app_settings — 운영 토글 (단일 행)
 -- 관리자 화면에서 즉시 켜고 꺼야 해서 환경변수가 아니라 DB 값이다. 서버는 1분 TTL로 캐시해 읽는다.
 -- ─────────────────────────────────────────────────────────────
@@ -206,6 +288,9 @@ alter table scraps        enable row level security;
 alter table sync_runs     enable row level security;
 alter table app_settings  enable row level security;
 alter table verdict_runs  enable row level security;
+alter table telegram_link_tokens enable row level security;
+alter table telegram_notified    enable row level security;
+alter table notify_runs          enable row level security;
 
 drop policy if exists policies_read_all on policies;
 create policy policies_read_all on policies
@@ -230,6 +315,10 @@ create policy scraps_own on scraps
   for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- verdict_runs / app_settings 도 정책을 만들지 않는다 — 운영 장부와 운영 토글이라 service_role 전용이다.
+
+-- telegram_link_tokens / telegram_notified / notify_runs도 정책을 만들지 않는다 — service_role 전용.
+-- telegram_link_tokens는 웹훅(서버)만 소비하면 되고 화면이 자기 토큰을 되읽을 이유가 없다
+-- (딥링크 URL 자체가 토큰을 담고 있다). telegram_notified/notify_runs는 verdict_runs와 같은 운영 장부다.
 
 -- ─────────────────────────────────────────────────────────────
 -- 운영 집계 함수  §2.8

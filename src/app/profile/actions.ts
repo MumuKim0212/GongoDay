@@ -18,6 +18,7 @@ import { log } from "@/lib/log";
 import { isLoginRequired } from "@/lib/settings";
 import { CATEGORIES } from "@/lib/sources/category";
 import { createClient } from "@/lib/supabase/server";
+import { buildDeepLink, createLinkToken } from "@/lib/telegram/link";
 
 /** `useActionState`가 들고 다니는 상태. 저장 전에는 `null`이다. */
 export type SaveState = { ok: boolean; message: string } | null;
@@ -111,6 +112,73 @@ export async function signOut(): Promise<void> {
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/");
+}
+
+/**
+ * 텔레그램 연동 시작 (ARCHITECTURE §11)
+ *
+ * 토큰을 발급해 딥링크로 리다이렉트한다. **익명 세션은 여기서 막는다** — 쿠키가 지워지면
+ * 연동이 끊기고, 매시간 크론이 익명 유저를 새로 만들 수 있어(§1.1) 익명에게 허용하면
+ * 쓸모없는 연동이 계속 쌓인다. 화면도 버튼을 숨기지만, `saveProfile`과 같은 이유로 서버 액션도
+ * 다시 검사한다 — 화면을 거치지 않고 직접 호출될 수 있다.
+ */
+export async function startTelegramLink(): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user || user.is_anonymous) {
+    redirect("/login?redirect=/profile");
+  }
+
+  const result = await createLinkToken(user.id);
+  if ("error" in result) {
+    log.error("telegram.link_token_failed", { message: result.error });
+    redirect("/profile");
+  }
+
+  redirect(buildDeepLink(result.token));
+}
+
+/** 연동 해제. 알림 최소 점수도 같이 지운다 — chat_id 없이 남겨두면 다음 연동 때 옛 값이 그대로 산다. */
+export async function unlinkTelegram(): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user || user.is_anonymous) redirect("/profile");
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ telegram_chat_id: null, telegram_notify_min_score: null })
+    .eq("id", user.id);
+  if (error) log.error("telegram.unlink_failed", { message: error.message });
+
+  revalidatePath("/profile");
+  redirect("/profile");
+}
+
+/** 알림 받을 최소 점수(1~5) 설정. 연동 안 된 계정이 값을 넣어도 알림 배치가 chat_id 없는 행은 건너뛴다. */
+export async function setNotifyMinScore(formData: FormData): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user || user.is_anonymous) redirect("/profile");
+
+  const raw = formData.get("min_score");
+  const n = typeof raw === "string" ? Number.parseInt(raw, 10) : NaN;
+  const minScore = Number.isInteger(n) && n >= 1 && n <= 5 ? n : null;
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ telegram_notify_min_score: minScore })
+    .eq("id", user.id);
+  if (error) log.error("telegram.set_min_score_failed", { message: error.message });
+
+  revalidatePath("/profile");
+  redirect("/profile");
 }
 
 const codes = (options: Option[]) => options.map((o) => o.code);

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { signOut } from "@/app/profile/actions";
 import { BackToList } from "@/components/BackToList";
 import { ProfileForm, type ProfileValues } from "@/components/ProfileForm";
+import { TelegramLinkSection } from "@/components/TelegramLinkSection";
 import { isLoginRequired } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
 
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 /** 폼이 그리는 칸만. `updated_at`은 화면이 쓰지 않는다. */
 const PROFILE_COLUMNS =
-  "birth_year, gender, region_sido, region_sigungu, income_bracket, situations, household, business_status, interests";
+  "birth_year, gender, region_sido, region_sigungu, income_bracket, situations, household, business_status, interests, telegram_chat_id, telegram_notify_min_score";
 
 export default async function ProfilePage() {
   const supabase = await createClient();
@@ -69,11 +70,20 @@ export default async function ProfilePage() {
           body="지금 저장하면 기존 값이 덮어써질 수 있어 폼을 열지 않았습니다. 잠시 후 새로고침해 주세요."
         />
       ) : (
-        <ProfileForm initial={(profile as ProfileValues | null) ?? null} />
+        <>
+          <ProfileForm initial={(profile as ProfileValues | null) ?? null} />
+          <TelegramLinkSection
+            isAnonymous={!user || Boolean(user.is_anonymous)}
+            telegramChatId={(profile as TelegramFields | null)?.telegram_chat_id ?? null}
+            notifyMinScore={(profile as TelegramFields | null)?.telegram_notify_min_score ?? null}
+          />
+        </>
       )}
     </main>
   );
 }
+
+type TelegramFields = { telegram_chat_id: string | null; telegram_notify_min_score: number | null };
 
 /** 목록·상세의 빈 상태와 같은 형태다 — 상자를 두르지 않는다 (§4.7) */
 function Notice({ title, body }: { title: string; body: string }) {

@@ -5,11 +5,11 @@ import { PAGE_SIZE } from "@/lib/policies/query";
 import { isLoginRequired } from "@/lib/settings";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { checkGate, type PolicyConditions, type Profile } from "@/lib/verdict/gate";
-import { callGemini } from "@/lib/verdict/gemini";
-import { buildProfileText, buildSourceText, type PolicySourceFields } from "@/lib/verdict/prompt";
+import { applyGate, callAndValidate } from "@/lib/verdict/decide";
+import type { PolicyConditions, Profile } from "@/lib/verdict/gate";
+import { buildProfileText, type PolicySourceFields } from "@/lib/verdict/prompt";
 import { SIGNATURE_COLUMNS, profileSignature } from "@/lib/verdict/signature";
-import { validateVerdict, type DecidedVerdict } from "@/lib/verdict/validate";
+import type { DecidedVerdict } from "@/lib/verdict/validate";
 
 /**
  * 배치 판정 (ARCHITECTURE §5)
@@ -63,9 +63,7 @@ const POLICY_COLUMNS = [
 
 type PolicyRow = PolicySourceFields & PolicyConditions & { id: string };
 
-const GATE_REASON = "입력하신 조건과 맞지 않는 항목이 있습니다.";
 const EMPTY_PROFILE_REASON = "판정에 쓸 조건이 비어 있습니다. 생년이나 사는 곳을 채워 주세요.";
-const AI_FAILED_REASON = "판정하지 못했습니다. 다시 시도해 주세요.";
 
 export async function POST(req: Request) {
   const startedAt = Date.now();
@@ -182,21 +180,12 @@ export async function POST(req: Request) {
   for (const policy of policies) {
     if (verdicts[policy.id]) continue;
 
-    const gate = checkGate(policy, profile);
-    if (!gate.pass) {
+    const gated = applyGate(policy, profile);
+    if (gated !== null) {
       // 코드로 답이 나온 건 AI를 부르지 않는다 (F-11a). blockers가 "왜 아닌지"를 말한다 (§7.5).
       stats.gate_blocked++;
-      const decided: DecidedVerdict = {
-        verdict: "ineligible",
-        decided_by: "code",
-        reason: GATE_REASON,
-        quote: null,
-        quote_verified: false,
-        blockers: gate.blockers,
-        checks: [],
-      };
-      verdicts[policy.id] = decided;
-      toSave.push({ ...decided, policy_id: policy.id });
+      verdicts[policy.id] = gated;
+      toSave.push({ ...gated, policy_id: policy.id });
       continue;
     }
 
@@ -241,49 +230,25 @@ export async function POST(req: Request) {
       // 캐시·게이트·빈 프로필분은 이미 답이 나와 있다. 첫 줄부터 배지가 붙는다.
       for (const [id, v] of Object.entries(verdicts)) line({ t: "v", id, v });
 
-      // 게이트 통과분. 건당 타임아웃은 gemini.ts 안에 있고, 이 함수는 throw하지 않는다.
+      // 게이트 통과분. 건당 타임아웃은 gemini.ts 안에 있고, callAndValidate는 throw하지 않는다.
       await Promise.all(
         forAi.map(async (policy) => {
-          const sourceText = buildSourceText(policy);
-          const { data: raw, usage } = await callGemini(profileText, sourceText);
+          const { decided, usage, failed } = await callAndValidate(profileText, policy);
 
           // 실패분도 더한다 — 응답을 받고 나서 실패한 호출은 토큰이 이미 청구됐다 (gemini.ts).
           stats.prompt_tokens += usage.promptTokens;
           stats.output_tokens += usage.outputTokens;
 
-          if (raw === null) {
+          if (failed) {
             // 호출 자체가 실패했다 (키·네트워크·타임아웃). 이 카드만 '애매'이고 나머지는 정상이다 (§7).
             // **저장하지 않는다** — 판정이 아니라 판정 못 함이라 다시 부르면 재시도되어야 한다.
             // `failed`로 표시해 보내 화면이 '다시 판정' 손잡이를 띄울 수 있게 한다.
             stats.ai_failed++;
-            line({
-              t: "v",
-              id: policy.id,
-              failed: true,
-              v: {
-                verdict: "unclear",
-                decided_by: "ai",
-                reason: AI_FAILED_REASON,
-                quote: null,
-                quote_verified: false,
-                blockers: [],
-                checks: [],
-              } satisfies DecidedVerdict,
-            });
+            line({ t: "v", id: policy.id, failed: true, v: decided });
             return;
           }
 
           // 검증 실패(인용이 원문에 없음)는 저장한다 — temperature 0이라 다시 물어도 같은 답이 온다 (§7.4).
-          const v = validateVerdict(raw, sourceText);
-          const decided: DecidedVerdict = {
-            verdict: v.verdict,
-            decided_by: "ai",
-            reason: v.reason,
-            quote: v.quote,
-            quote_verified: v.quote_verified,
-            blockers: v.blockers,
-            checks: v.checks,
-          };
           toSave.push({ ...decided, policy_id: policy.id });
           line({ t: "v", id: policy.id, v: decided });
         }),

@@ -336,6 +336,7 @@ sync_runs : id, source, started_at, finished_at,
 | `verdicts` | **없음** — `service_role`만 | **없음** — `service_role`만 |
 | `sync_runs` | anon + authenticated | **없음** — `service_role`만 |
 | `verdict_runs` / `app_settings` | **없음** — `service_role`만 | **없음** — `service_role`만 |
+| `telegram_link_tokens` / `telegram_notified` / `notify_runs` | **없음** — `service_role`만 | **없음** — `service_role`만 (§11) |
 
 `policies`에 클라이언트 write 정책을 아예 만들지 않는다. `verdicts`는 사용자별이 아니라 조건별 공유 캐시라 '본인 행만'이 성립하지 않는다 — 읽기까지 `service_role`로 돌린다 (§2.3).
 
@@ -466,6 +467,8 @@ src/
     api/
       sync/route.ts              수집 트리거 — CRON_SECRET 필요 (§4.3)
       verdicts/route.ts          판정 — NDJSON 스트림 (§5)
+      notify/route.ts            텔레그램 알림 배치 — CRON_SECRET 필요, sync 다음 스텝 (§11)
+      telegram/webhook/route.ts  텔레그램 웹훅 — 딥링크 연동 착지점 (§11)
   lib/
     log.ts                         서버 로그 — 한 줄에 JSON 하나, `도메인.사건` 이름 규칙
     supabase/
@@ -491,6 +494,10 @@ src/
       validate.ts                3단 검증
       signature.ts               profileSignature() (§5.5)
       score.ts                   5단계 점수 — 확인 항목 수에서 유도한다 (§5.6)
+      decide.ts                  게이트/AI 판정 한 건 처리 — /api/verdicts와 /api/notify가 공유 (§11)
+    telegram/
+      link.ts                    딥링크 토큰 발급·URL 조립
+      client.ts                  sendMessage() (never throws, gemini.ts와 같은 패턴)
     profile/
       schema.ts                  선택지 상수 (정부24 코드 ↔ 한글 라벨)
     admin/
@@ -507,9 +514,11 @@ src/
                                  바뀐 view가 없어 `다음 →`이 보기를 되돌려 놨다 (DESIGN §5.1)
     BackToList.tsx               떠나온 자리로 돌아간다 — `/`가 아니다 (DESIGN.md §5.2)
     ListControls.tsx (분야·검색·스크랩)  ProfileForm.tsx  SyncButton.tsx  AdminTabs.tsx
+    TelegramLinkSection.tsx      프로필의 텔레그램 연동 UI (§11)
 scripts/
   verdict-check.mts              순수 함수 68항목. **DB도 네트워크도 없다 — CI가 이것만 돌린다**
-  그 밖 12개                      실서비스·브라우저가 있어야 도는 검사와 실측 (§5.1.2, §5.0.2 등)
+  telegram-set-webhook.mjs       텔레그램 setWebhook 1회 등록 (§11)
+  그 밖 11개                      실서비스·브라우저가 있어야 도는 검사와 실측 (§5.1.2, §5.0.2 등)
 supabase/
   schema.sql                     스키마 단일 진실 원천
 ```
@@ -1080,6 +1089,9 @@ p=t23s60|r=1euan9e
 | `YOUTH_API_KEY` | **서버 전용** | 온통청년 `apiKeyNm` (쿼리) |
 | `GOV24_API_KEY` | **서버 전용** | 정부24 `Authorization` **헤더** |
 | `ADMIN_SLUG` | **서버 전용** | 운영 현황 화면 경로 (`/admin/<값>`). **비우면 `/admin`이 잠금 없이 열린다.** 로컬·배포 같은 규칙 |
+| `TELEGRAM_BOT_TOKEN` | **서버 전용** | 텔레그램 발송·웹훅 (§11) |
+| `TELEGRAM_BOT_USERNAME` | **서버 전용** | 딥링크 URL 조립 |
+| `TELEGRAM_WEBHOOK_SECRET` | **서버 전용** | 웹훅 요청 검증 |
 
 ---
 
@@ -1125,3 +1137,66 @@ p=t23s60|r=1euan9e
 - 정부24: 정부24_실제응답검증.md — 벌크 조회·지역 판별·코드 해석 규칙
 
 > 검증 기록 원본은 제출 과정에서 정리되어 저장소에는 없다.
+
+---
+
+## 11. 텔레그램 알림 — 새 공고 자동 알림
+
+PRD §1의 결론과 정확히 반대 방향처럼 보이지만 다르다. n8n 알리미가 문제였던 것은 **누구에게나 같은 것을 뿌리는 것**이었지, 알림이라는 통로 자체가 아니었다. 여기서는 조건을 먼저 등록해두고(웹의 몫, §1.1), 판정 점수가 **본인이 고른 임계값 이상**인 것만, **opt-in한 사람에게만** 보낸다.
+
+### 11.1 딥링크 연동
+
+사용자가 chat id를 직접 알아내거나 입력할 필요가 없다.
+
+```
+/profile (정식 계정만) → "텔레그램으로 연결"
+    → telegram_link_tokens에 일회용 토큰 발급 (10분 만료)
+    → redirect: t.me/<BOT_USERNAME>?start=<token>
+사용자가 텔레그램에서 "시작" → 봇이 /start <token> 수신
+    → POST /api/telegram/webhook (X-Telegram-Bot-Api-Secret-Token 헤더로 검증)
+    → 토큰으로 profile_id를 되찾아 profiles.telegram_chat_id를 채움
+    → 토큰 소비(used_at) + 안내 메시지 발송
+```
+
+**익명 세션은 연동할 수 없다.** 쿠키가 지워지면 연동이 끊기고, `proxy.ts`가 화면 요청마다 새 익명 유저를 만들 수 있어(§1.1) 허용하면 쓸모없는 연동이 계속 쌓인다. `startTelegramLink()`(`app/profile/actions.ts`)가 `user.is_anonymous`를 검사한다 — 화면이 버튼을 숨기는 것과 별개로, 서버 액션도 직접 호출될 수 있어 다시 검사한다 (`saveProfile`과 같은 원칙).
+
+**`telegram_link_tokens`에는 RLS 정책이 없다** — `verdicts`와 같은 이유로 service_role 전용이다. 발급도(`createLinkToken`) 소비도(웹훅) admin 클라이언트로 하고, 발급 쪽은 호출자가 세션에서 확인한 `profileId`를 직접 넘긴다.
+
+**Telegram에는 항상 200으로 응답한다.** 실패해도 200을 주지 않으면 같은 update를 계속 재전송한다 — 실패는 봇 메시지로만 사용자에게 알린다.
+
+### 11.2 알림 배치 (`POST /api/notify`)
+
+`.github/workflows/sync.yml`이 매시간 두 소스를 수집한 뒤 이어서 호출한다. `/api/sync`와 인증이 같다(`CRON_SECRET` Bearer).
+
+```
+policies.created_at 커서로 신규 정책 조회 (최대 MAX_POLICIES건 + 1로 "더 남았는지" 판별)
+  → 텔레그램 연동 사용자 전체 조회, profileSignature()로 묶는다
+  → (정책, 서명) 조합을 verdicts 캐시로 우선 채운다 — /api/verdicts와 같은 캐시를 그대로 재사용
+  → 캐시 미스만 applyGate() → 통과분 callAndValidate() → verdicts에 upsert
+  → 정책 × 서명이 아니라 정책 × 사용자 단위로: scoreOf(verdict) >= telegram_notify_min_score
+    이고 telegram_notified에 없는 조합만 발송, 성공하면 이력에 기록
+```
+
+**"신규 정책"의 기준은 `policies.created_at`이다.** `fetched_at`은 재수집 때마다 갱신되어(§2.1) 커서로 못 쓴다 — `created_at`은 insert 시에만 찍히므로(`toPolicy()`가 이 컬럼을 절대 채우지 않는다) 정확히 "이 배치가 처음 보는 정책"만 가려낸다.
+
+**캐시는 `/api/verdicts`와 완전히 같은 `verdicts` 테이블을 쓴다.** 서명이 같은 사용자는 (정책, 서명) 조합 하나로 커버되므로, 연동 사용자가 늘어도 조건이 겹치는 만큼 Gemini 호출은 늘지 않는다.
+
+**발송 이력은 `verdicts`가 아니라 별도 `telegram_notified`(정책, 사용자) 테이블이다.** `verdicts`는 서명 단위 공유 캐시라(§2.3) 여기 발송 여부를 얹으면 같은 조건의 다른 사용자에게도 "이미 보냈다"가 잘못 전파된다.
+
+**게이트/AI 판정 로직은 `lib/verdict/decide.ts`로 뽑아 `/api/verdicts`와 공유한다** — `applyGate()`(코드 게이트 → `DecidedVerdict | null`)와 `callAndValidate()`(Gemini 호출 → 검증까지). 캐시 조회·저장·통계 집계·응답 형태(스트림 vs 배치 요약)는 두 라우트가 각자 처리한다 — 억지로 합치면 스트리밍이라는 제어 흐름과 배치 요약이라는 제어 흐름이 부자연스럽게 얽힌다.
+
+**커서 이어받기는 `sync_runs.last_page`와 같은 사고방식이다.** `notify_runs.cursor_after`가 다음 배치의 시작점이다. 이번 배치가 신규 정책을 `MAX_POLICIES`건 넘게 발견하면(수신자가 많을수록 조합이 곱으로 늘어난다) 초과분은 다음 크론이 처리하고, 커서는 이번에 완전히 처리한 마지막 정책까지만 전진한다.
+
+**전송 실패는 이력에 남기지 않는다** — 다음 배치가 재시도한다. 일시 장애와 영구 차단(403, 봇이 차단됨)을 구분해 후자만 자동으로 연동을 해제하는 것은 지금은 하지 않는다 (열린 질문).
+
+### 11.3 스키마
+
+```
+profiles.telegram_chat_id / telegram_notify_min_score   — 연동 상태 · 알림 임계값(1~5, null=꺼짐)
+telegram_link_tokens  (token, profile_id, expires_at, used_at)
+telegram_notified     (policy_id, profile_id) 복합 pk   — 중복 발송 방지
+notify_runs           (sync_runs/verdict_runs와 같은 장부 패턴, cursor_before/cursor_after)
+policies.created_at   — 알림 커서 기준. fetched_at과 달리 재수집으로 갱신되지 않는다
+```
+
+RLS는 §2.5 표를 따른다 — 셋 다 service_role 전용, 정책 없음.

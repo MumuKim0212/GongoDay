@@ -23,6 +23,7 @@
 1. **목록** — 두 출처 13,662건을 한 테이블에 모아 최신순으로. 나이·지역은 등록한 조건으로, 분야는 칩을 켜고 꺼서 좁힙니다
 2. **판정** — 현재 페이지 10건을 `해당 / 애매 / 아님`으로 판정합니다. **코드로 답이 나오는 조건은 AI를 부르지 않고**, 나머지만 Gemini가 판정합니다. 근거는 원문에서 그대로 인용한 문장이고 서버가 원문과 대조해 검증합니다
 3. **상세** — 판정에 쓰인 원문을 그대로 보여주고 인용 구간을 하이라이트합니다. 스크랩할 수 있습니다
+4. **텔레그램 알림** — 로그인한 계정은 텔레그램을 연결하고 알림 받을 최소 점수(1~5)를 고를 수 있습니다. 매시간 수집 직후 새로 들어온 정책만 판정해, 고른 점수 이상이면 텔레그램으로 보내드립니다
 
 ## 어떻게 동작하나
 
@@ -36,6 +37,8 @@
        → 같은 조건 + 같은 정책 조합은 캐시 재사용(재호출 없음)
 ```
 
+텔레그램은 `/profile`에서 딥링크로 연결하고, 매시간 크론이 수집 다음 단계로 새 정책만 판정해 고른 점수 이상인 것만 보냅니다. 자세한 설계 근거는 [docs/PRD.md](docs/PRD.md) §7, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §11을 참고하세요.
+
 ## 실행
 
 ```bash
@@ -44,7 +47,7 @@ cp .env.example .env.local   # 키를 채운다 (각 키의 용도는 .env.examp
 npm run dev
 ```
 
-`supabase/schema.sql`이 스키마의 단일 진실 원천입니다. 정책 데이터는 **매시간 GitHub Actions**(`.github/workflows/sync.yml`)가 `POST /api/sync`를 쳐서 조회합니다.
+`supabase/schema.sql`이 스키마의 단일 진실 원천입니다. 정책 데이터는 **매시간 GitHub Actions**(`.github/workflows/sync.yml`)가 `POST /api/sync`를 쳐서 조회합니다. 같은 워크플로가 이어서 `POST /api/notify`를 쳐서 텔레그램 알림 배치를 돌립니다. 텔레그램 봇을 쓰려면 `.env.local`에 `TELEGRAM_*` 값을 채운 뒤 `node scripts/telegram-set-webhook.mjs`로 웹훅을 한 번 등록해야 합니다.
 
 ## 문서
 

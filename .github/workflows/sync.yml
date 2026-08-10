@@ -42,3 +42,11 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET" \
             -H "Content-Type: application/json" \
             -d '{"source":"gov24"}'
+
+      # 두 소스 중 하나라도 새 정책을 넣었으면 알림 대상이다. 실패해도 다음 정각의 커서 이어받기가
+      # 있으니(§11) 이 스텝의 실패가 sync 결과를 되돌리지 않는다.
+      - name: 텔레그램 알림
+        if: always()
+        run: |
+          curl --fail-with-body -sS --max-time 120 -X POST "$SYNC_URL/api/notify" \
+            -H "Authorization: Bearer $CRON_SECRET"
