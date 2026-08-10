@@ -355,9 +355,15 @@ async function finishRun(
   if (error) log.warn("notify.run_update_failed", { message: error.message });
 }
 
-/** 텔레그램 메시지 본문. HTML parse_mode — Markdown은 정책명의 특수문자로 파싱 에러가 잦다. */
+/**
+ * 텔레그램 메시지 본문. HTML parse_mode — Markdown은 정책명의 특수문자로 파싱 에러가 잦다.
+ *
+ * **제목만 굵게 한다.** 한 배치에 여러 건이 걸리면 메시지가 건별로 연달아 오는데, 제목과
+ * 확인 항목·이유가 같은 굵기면 어디서 한 건이 끝나는지 눈으로 잡히지 않는다.
+ * 태그는 여기서만 넣고 값은 그 전에 이스케이프한다 — 정책명에 든 `<`가 태그로 읽히면 안 된다.
+ */
 function formatMessage(policy: PolicyRow, verdict: DecidedVerdict, score: number): string {
-  const lines = [`[${score}점] ${escapeHtml(policy.title)}`];
+  const lines = [`[${score}점] <b>${escapeHtml(policy.title)}</b>`];
   if (verdict.checks.length > 0) {
     lines.push(`확인 ${verdict.checks.length}개: ${escapeHtml(verdict.checks[0])}`);
   }
