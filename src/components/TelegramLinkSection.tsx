@@ -3,8 +3,11 @@ import { setNotifyMinScore, startTelegramLink, unlinkTelegram } from "@/app/prof
 /**
  * 프로필 페이지의 텔레그램 알림 연동 섹션 (ARCHITECTURE §11)
  *
- * 익명 세션에는 연동 버튼 대신 로그인 안내만 보인다 — 서버 액션도 같은 조건을 다시 검사한다
- * (`startTelegramLink`).
+ * **익명 세션에는 이 섹션이 통째로 안 보인다.** 연동은 정식 계정만 되는데(§11.1), 지금은
+ * 로그인 요구가 꺼져 있어 사실상 전원이 익명이다 — 안내를 띄우면 아직 열지 않은 로그인으로
+ * 사용자를 밀어내는 유일한 진입점이 된다. 로그인 전환 때 안내를 다시 넣는다.
+ *
+ * 서버 액션도 같은 조건을 다시 검사한다 (`startTelegramLink`) — 화면이 숨기는 것과 별개다.
  */
 export function TelegramLinkSection({
   isAnonymous,
@@ -15,18 +18,7 @@ export function TelegramLinkSection({
   telegramChatId: string | null;
   notifyMinScore: number | null;
 }) {
-  if (isAnonymous) {
-    return (
-      <Section legend="텔레그램 알림">
-        <p className="text-small text-muted">
-          로그인하면 새 공고를 텔레그램으로 받아볼 수 있습니다.{" "}
-          <a href="/login?redirect=/profile" className="text-[var(--accent-ink)] underline">
-            로그인하기
-          </a>
-        </p>
-      </Section>
-    );
-  }
+  if (isAnonymous) return null;
 
   if (telegramChatId === null) {
     return (
