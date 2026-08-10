@@ -100,7 +100,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
           {/* 좁은 화면에서는 한 단 내린다 — 375px에서 44px은 세 줄로 넘친다.
               clamp를 쓰지 않는 이유는 두 값이 다 스케일 위에 있어야 하기 때문이다 (§2.3) */}
           <h1 className="text-display sm:text-hero text-balance">
-            오늘, <strong className="font-extrabold">내가 신청할 수 있는</strong> 공고만.
+            오늘, <strong className="font-extrabold">내가 신청할 수 있는</strong> 공고만
           </h1>
 
           <p className="text-sub text-muted mt-4 font-normal text-balance">
@@ -116,7 +116,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
             1차 조건 통과 <strong>{filteredCount.toLocaleString()}</strong>건 / 전체{" "}
             {totalCount.toLocaleString()}건
           </span>
-          {!profile ? <span className="ml-2">조건을 넣으면 더 좁혀집니다</span> : null}
         </p>
 
         {/* 둘러보기 머리줄 — 제목 옆이 보기 전환 자리다 */}

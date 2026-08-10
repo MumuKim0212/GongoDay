@@ -1,9 +1,10 @@
 # 오늘공고
 
-**오늘, 내가 신청할 수 있는 공고만.** 수도권(서울·인천·경기)에 사는 개인이 온통청년·정부24에 흩어진 지원정책 중 **자기가 실제로 신청할 수 있는 것**을 골라 볼 수 있게, 조건을 한 번 등록해두면 AI가 원문 근거와 함께 해당 여부를 판정합니다.
+**오늘, 내가 신청할 수 있는 공고만.** 수도권(서울·인천·경기)에 사는 사람이 온통청년·정부24에 흩어진 지원정책 중 **자기가 실제로 신청할 수 있는 것**을 골라 볼 수 있게, 조건을 한 번 등록해두면 AI가 원문 근거와 함께 해당 여부를 판정합니다.
 
-- **배포 주소** : https://gongoday.vercel.app (로그인 없이 바로 사용)
-- **스크린샷** : [docs/screenshots/](docs/screenshots)
+- **배포 주소** : https://gongoday.vercel.app
+
+<img src="docs/screenshots/01-메인페이지-AI판정결과.png" alt="메인페이지 AI 판정 결과" width="800" />
 
 ## 기술 스택
 
@@ -41,7 +42,7 @@ cp .env.example .env.local   # 키를 채운다 (각 키의 용도는 .env.examp
 npm run dev
 ```
 
-`supabase/schema.sql`이 스키마의 단일 진실 원천입니다. 정책 데이터는 **매시간 GitHub Actions**(`.github/workflows/sync.yml`)가 `POST /api/sync`를 쳐서 받습니다 — 한 번에 10페이지씩 이어받으므로 온통청년은 3시간, 정부24는 11시간에 한 바퀴입니다. 즉시 돌려야 하면 `/admin`의 **갱신** 버튼을 씁니다.
+`supabase/schema.sql`이 스키마의 단일 진실 원천입니다. 정책 데이터는 **매시간 GitHub Actions**(`.github/workflows/sync.yml`)가 `POST /api/sync`를 쳐서 조회합니다 — 한 번에 10페이지씩 이어받으므로 온통청년은 3시간, 정부24는 11시간에 한 바퀴입니다. 즉시 돌려야 하면 `/admin`의 **갱신** 버튼을 씁니다.
 
 ## 문서
 
