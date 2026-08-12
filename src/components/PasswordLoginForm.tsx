@@ -48,6 +48,7 @@ export function PasswordLoginForm({ redirectTo }: { redirectTo: string }) {
   const activeState = mode === "signin" ? signInState : signUpState;
   const pending = mode === "signin" ? signingIn : signingUp;
   const loggedIn = activeState?.ok === true && !activeState.needsConfirmation;
+  const needsConfirmation = signUpState?.ok === true && signUpState.needsConfirmation === true;
 
   useEffect(() => {
     if (loggedIn) {
@@ -58,6 +59,10 @@ export function PasswordLoginForm({ redirectTo }: { redirectTo: string }) {
 
   if (loggedIn) {
     return <p className="text-small text-muted mt-6 text-center">로그인되었습니다. 이동하는 중…</p>;
+  }
+
+  if (needsConfirmation && signUpState) {
+    return <p className="text-small text-muted mt-6 text-center">{signUpState.message}</p>;
   }
 
   return (
