@@ -116,32 +116,35 @@ export async function signOut(): Promise<void> {
 /**
  * 텔레그램 연동 시작 (ARCHITECTURE §11)
  *
- * 토큰을 발급해 딥링크로 리다이렉트한다. **익명 세션은 여기서 막는다** — 쿠키가 지워지면
- * 연동이 끊기고, 매시간 크론이 익명 유저를 새로 만들 수 있어(§1.1) 익명에게 허용하면
- * 쓸모없는 연동이 계속 쌓인다. 화면도 버튼을 숨기지만, `saveProfile`과 같은 이유로 서버 액션도
- * 다시 검사한다 — 화면을 거치지 않고 직접 호출될 수 있다.
+ * 토큰을 발급해 딥링크 URL을 돌려준다. 리다이렉트하지 않는 이유는 호출부(`TelegramLinkButton`)가
+ * 이 URL을 새 탭으로 열기 위해서다 — 이 화면(같은 탭)에서 리다이렉트하면 사용자가 텔레그램 딥링크로
+ * 넘어갔다가 프로필로 돌아오기가 번거롭다.
+ *
+ * **익명 세션은 여기서 막는다** — 쿠키가 지워지면 연동이 끊기고, 매시간 크론이 익명 유저를
+ * 새로 만들 수 있어(§1.1) 익명에게 허용하면 쓸모없는 연동이 계속 쌓인다. 화면도 버튼을 숨기지만,
+ * `saveProfile`과 같은 이유로 서버 액션도 다시 검사한다 — 화면을 거치지 않고 직접 호출될 수 있다.
  */
-export async function startTelegramLink(): Promise<void> {
+export async function startTelegramLink(): Promise<{ url: string } | { redirect: string }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user || user.is_anonymous) {
-    redirect("/login?redirect=/profile");
+    return { redirect: "/login?redirect=/profile" };
   }
 
   const result = await createLinkToken(user.id);
   if ("error" in result) {
     log.error("telegram.link_token_failed", { message: result.error });
-    redirect("/profile");
+    return { redirect: "/profile" };
   }
 
-  redirect(buildDeepLink(result.token));
+  return { url: buildDeepLink(result.token) };
 }
 
 /** 연동 해제. 알림 최소 점수도 같이 지운다 — chat_id 없이 남겨두면 다음 연동 때 옛 값이 그대로 산다. */
-export async function unlinkTelegram(): Promise<void> {
+export async function unlinkTelegram(): Promise<SaveState> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -152,14 +155,17 @@ export async function unlinkTelegram(): Promise<void> {
     .from("profiles")
     .update({ telegram_chat_id: null, telegram_notify_min_score: null })
     .eq("id", user.id);
-  if (error) log.error("telegram.unlink_failed", { message: error.message });
+  if (error) {
+    log.error("telegram.unlink_failed", { message: error.message });
+    return { ok: false, message: `연동 해제에 실패했습니다: ${error.message}` };
+  }
 
   revalidatePath("/profile");
-  redirect("/profile");
+  return { ok: true, message: "연동을 해제했습니다." };
 }
 
 /** 알림 받을 최소 점수(1~5) 설정. 연동 안 된 계정이 값을 넣어도 알림 배치가 chat_id 없는 행은 건너뛴다. */
-export async function setNotifyMinScore(formData: FormData): Promise<void> {
+export async function setNotifyMinScore(_prev: SaveState, formData: FormData): Promise<SaveState> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -174,10 +180,13 @@ export async function setNotifyMinScore(formData: FormData): Promise<void> {
     .from("profiles")
     .update({ telegram_notify_min_score: minScore })
     .eq("id", user.id);
-  if (error) log.error("telegram.set_min_score_failed", { message: error.message });
+  if (error) {
+    log.error("telegram.set_min_score_failed", { message: error.message });
+    return { ok: false, message: `저장하지 못했습니다: ${error.message}` };
+  }
 
   revalidatePath("/profile");
-  redirect("/profile");
+  return { ok: true, message: "저장했습니다." };
 }
 
 const codes = (options: Option[]) => options.map((o) => o.code);

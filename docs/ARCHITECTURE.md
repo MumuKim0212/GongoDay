@@ -1151,7 +1151,7 @@ PRD §1의 결론과 정확히 반대 방향처럼 보이지만 다르다. n8n �
 ```
 /profile (정식 계정만) → "텔레그램으로 연결"
     → telegram_link_tokens에 일회용 토큰 발급 (10분 만료)
-    → redirect: t.me/<BOT_USERNAME>?start=<token>
+    → 새 탭으로 열기: t.me/<BOT_USERNAME>?start=<token>
 사용자가 텔레그램에서 "시작" → 봇이 /start <token> 수신
     → POST /api/telegram/webhook (X-Telegram-Bot-Api-Secret-Token 헤더로 검증)
     → 토큰으로 profile_id를 되찾아 profiles.telegram_chat_id를 채움
