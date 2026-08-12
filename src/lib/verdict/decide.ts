@@ -11,7 +11,7 @@ import { buildSourceText, type PolicySourceFields } from "./prompt";
 import { validateVerdict, type DecidedVerdict } from "./validate";
 
 const GATE_REASON = "입력하신 조건과 맞지 않는 항목이 있습니다.";
-const AI_FAILED_REASON = "판정하지 못했습니다. 다시 시도해 주세요.";
+const AI_FAILED_REASON = "서버 오류로 적합도 판정에 실패했습니다.";
 
 /** 게이트가 결론냈으면 `DecidedVerdict`, 통과했으면 `null`(= AI로 넘긴다). */
 export function applyGate(policy: PolicyConditions, profile: Profile): DecidedVerdict | null {

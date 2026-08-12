@@ -399,6 +399,11 @@
     border-color: var(--quiet-border);
     color: var(--quiet-fg);
   }
+  /* 판정 자체가 실패한 카드 — 점수 계단(§4.1)과 섞이면 안 되는 별도의 뜻이라 danger 잉크를 쓴다 */
+  .tag-danger {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
 
   /* 태그를 컨트롤로 쓸 때 (분야 칩 §5.1). 손가락이 닿아야 하므로 표시용 태그보다 크다 —
      3px 패딩이면 24.8px라 누를 곳이 못 된다. */

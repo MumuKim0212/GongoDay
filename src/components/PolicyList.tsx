@@ -44,7 +44,7 @@ type StreamLine =
 const FAILED_PLACEHOLDER: DecidedVerdict = {
   verdict: "unclear",
   decided_by: "ai",
-  reason: "판정하지 못했습니다. 다시 시도해 주세요.",
+  reason: "서버 오류로 적합도 판정에 실패했습니다.",
   quote: null,
   quote_verified: false,
   blockers: [],
@@ -327,6 +327,7 @@ export function PolicyList({
             policy: p,
             verdict: verdicts[p.id] ?? null,
             judging: judging && !verdicts[p.id],
+            failed: failedIds.includes(p.id),
           };
           return view === "tile" ? (
             <PolicyTile key={p.id} {...props} />

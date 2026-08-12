@@ -6,7 +6,7 @@ import { normalize } from "@/lib/verdict/normalize";
 import { SCORE_HINTS, scoreOf } from "@/lib/verdict/score";
 import type { DecidedVerdict } from "@/lib/verdict/validate";
 
-import { CategoryBadge, ScoreBadge, SourceKicker, VerdictBadgeSkeleton } from "./badges";
+import { CategoryBadge, ErrorBadge, ScoreBadge, SourceKicker, VerdictBadgeSkeleton } from "./badges";
 
 /**
  * 목록 카드 (ARCHITECTURE §6.1 · docs/DESIGN.md §5.1)
@@ -25,11 +25,14 @@ export function PolicyCard({
   policy,
   verdict,
   judging = false,
+  failed = false,
 }: {
   policy: PolicyListRow;
   verdict: DecidedVerdict | null;
   /** 이 카드의 판정을 기다리는 중 — 배지 자리에 스켈레톤을 둔다 (§7) */
   judging?: boolean;
+  /** 판정 시도 자체가 실패했다 (AI 호출 실패·타임아웃) — 점수가 아니라 에러로 보여준다 */
+  failed?: boolean;
 }) {
   const score = verdict ? scoreOf(verdict) : null;
   const dimmed = score === 1;
@@ -47,7 +50,9 @@ export function PolicyCard({
       <div className="flex items-start justify-between gap-4">
         <SourceKicker source={policy.source} />
 
-        {verdict && score ? (
+        {failed ? (
+          <ErrorBadge reason={verdict?.reason ?? null} />
+        ) : verdict && score ? (
           <ScoreBadge
             score={score}
             checkCount={verdict.checks.length}
@@ -73,7 +78,9 @@ export function PolicyCard({
         </div>
       ) : null}
 
-      {verdict ? (
+      {failed ? (
+        <p className="card-body">{verdict?.reason ?? "서버 오류로 적합도 판정에 실패했습니다."}</p>
+      ) : verdict ? (
         <VerdictDetail verdict={verdict} />
       ) : (
         <p className="card-body line-clamp-2">{policy.summary ?? policy.eligibility_text ?? ""}</p>

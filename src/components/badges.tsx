@@ -63,6 +63,25 @@ export function ScoreBadge({
 }
 
 /**
+ * 판정 시도 자체가 실패했을 때 (§7) — AI 호출 실패·타임아웃. **점수가 아니다**, 그래서
+ * 1~5점 배지와 다른 잉크(danger)를 쓴다. "조건 미기재"(2점)와 섞이면 사용자가 자기 조건
+ * 탓으로 오해한다.
+ */
+export function ErrorBadge({ reason }: { reason: string | null }) {
+  return (
+    <button type="button" className="tag group relative shrink-0 tag-danger">
+      판정 에러
+      <span
+        aria-hidden
+        className="pointer-events-none absolute top-full right-0 z-20 mt-1.5 w-max max-w-[220px] rounded-sm bg-[var(--ink)] px-2 py-1.5 text-left text-micro whitespace-normal text-[var(--paper)] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100"
+      >
+        {reason ?? "서버 오류로 적합도 판정에 실패했습니다."}
+      </span>
+    </button>
+  );
+}
+
+/**
  * 판정을 기다리는 동안 배지 자리를 지킨다 — 결과가 도착해도 카드가 튀지 않는다 (§7 · DESIGN.md §4.6)
  *
  * 높이를 숫자로 박지 않고 `.tag`에서 그대로 받는다. 배지의 글자 크기나 패딩이 바뀌어도

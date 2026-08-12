@@ -5,7 +5,7 @@ import type { PolicyListRow } from "@/lib/policies/query";
 import { scoreOf } from "@/lib/verdict/score";
 import type { DecidedVerdict } from "@/lib/verdict/validate";
 
-import { CategoryBadge, ScoreBadge, SourceKicker, VerdictBadgeSkeleton } from "./badges";
+import { CategoryBadge, ErrorBadge, ScoreBadge, SourceKicker, VerdictBadgeSkeleton } from "./badges";
 import { CategoryIcon } from "./CategoryIcon";
 
 /**
@@ -21,10 +21,13 @@ export function PolicyTile({
   policy,
   verdict,
   judging = false,
+  failed = false,
 }: {
   policy: PolicyListRow;
   verdict: DecidedVerdict | null;
   judging?: boolean;
+  /** 판정 시도 자체가 실패했다 (AI 호출 실패·타임아웃) — 점수가 아니라 에러로 보여준다 */
+  failed?: boolean;
 }) {
   const score = verdict ? scoreOf(verdict) : null;
   const dimmed = score === 1;
@@ -46,7 +49,9 @@ export function PolicyTile({
         <CategoryIcon category={category} />
 
         <span className="tile-badge">
-          {verdict && score ? (
+          {failed ? (
+            <ErrorBadge reason={verdict?.reason ?? null} />
+          ) : verdict && score ? (
             <ScoreBadge
               score={score}
               checkCount={verdict.checks.length}
