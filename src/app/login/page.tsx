@@ -1,7 +1,11 @@
 import { BackToList } from "@/components/BackToList";
-import { LoginForm } from "@/components/LoginForm";
+import { PasswordLoginForm } from "@/components/PasswordLoginForm";
 
 export const dynamic = "force-dynamic";
+
+const ERROR_MESSAGES: Record<string, string> = {
+  confirm_failed: "확인 링크가 올바르지 않거나 만료되었습니다. 다시 시도해 주세요.",
+};
 
 /**
  * 로그인 (PRD §9.5) — 조건 입력·판정 시점에 이 화면으로 온다.
@@ -10,10 +14,11 @@ export const dynamic = "force-dynamic";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ redirect?: string }>;
+  searchParams: Promise<{ redirect?: string; error?: string }>;
 }) {
-  const { redirect } = await searchParams;
+  const { redirect, error } = await searchParams;
   const redirectTo = redirect && redirect.startsWith("/") ? redirect : "/profile";
+  const errorMessage = error ? ERROR_MESSAGES[error] : undefined;
 
   return (
     <main className="max-w-read mx-auto w-full px-4 py-8">
@@ -22,11 +27,13 @@ export default async function LoginPage({
       <header className="mt-3">
         <h1 className="text-title">로그인</h1>
         <p className="text-body mt-2">
-          이메일로 받은 코드를 입력하면 로그인됩니다. 계정이 없으면 자동으로 만들어집니다.
+          이메일과 비밀번호로 로그인하세요. 계정이 없다면 회원가입으로 바로 만들 수 있습니다.
         </p>
       </header>
 
-      <LoginForm redirectTo={redirectTo} />
+      {errorMessage ? <p className="text-small text-danger mt-3">{errorMessage}</p> : null}
+
+      <PasswordLoginForm redirectTo={redirectTo} />
     </main>
   );
 }
