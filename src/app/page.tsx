@@ -87,12 +87,14 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
           {/* 프로필로 가는 문은 이 하나뿐이다. 목록 쪽에 같은 링크를 또 두면 기능이 겹친다.
               조건이 없을 때만 채움이다 — 그때는 판정 버튼이 없으므로 채움은 여전히 화면에 하나다 (§5.1)
               로그인 전(익명 포함)에는 /profile이 서버에서 /login으로 튕기므로, 그 왕복 없이
-              바로 로그인으로 보낸다 (PRD §9.5). */}
+              바로 로그인으로 보낸다 (PRD §9.5). 로그인 여부를 label·href 모두에서 먼저 봐야 한다 —
+              로그인 강제 전에 저장된 레거시 프로필이 있는 익명 세션이면 profile만으로는
+              "내 조건 수정"이 떠서 실제로는 로그인으로 튕기는데도 이미 조건이 있는 것처럼 보인다. */}
           <Link
             href={isLoggedIn ? "/profile" : "/login?redirect=/profile"}
-            className={profile ? "btn btn-secondary" : "btn btn-primary"}
+            className={isLoggedIn && profile ? "btn btn-secondary" : "btn btn-primary"}
           >
-            {profile ? "내 조건 수정" : isLoggedIn ? "내 조건 입력하기" : "로그인"}
+            {!isLoggedIn ? "로그인" : profile ? "내 조건 수정" : "내 조건 입력하기"}
           </Link>
         </div>
       </header>
