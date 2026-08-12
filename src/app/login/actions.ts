@@ -2,6 +2,8 @@
 
 import { headers } from "next/headers";
 
+import { log } from "@/lib/log";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export type PasswordState = { ok: boolean; message: string; needsConfirmation?: boolean } | null;
@@ -24,7 +26,11 @@ async function origin(): Promise<string> {
 export async function signUpWithEmailPassword(_prev: PasswordState, formData: FormData): Promise<PasswordState> {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+  const nickname = String(formData.get("nickname") ?? "").trim();
 
+  if (nickname === "" || nickname.length > 20) {
+    return { ok: false, message: "이름(닉네임)을 1~20자로 입력해 주세요." };
+  }
   if (!EMAIL_RE.test(email)) {
     return { ok: false, message: "올바른 이메일 주소를 입력해 주세요." };
   }
@@ -47,6 +53,17 @@ export async function signUpWithEmailPassword(_prev: PasswordState, formData: Fo
   // 보안상 이미 가입된(확인 완료된) 이메일도 에러 없이 성공 응답을 준다 — identities가 비어 있으면 그 경우다.
   if (data.user && data.user.identities && data.user.identities.length === 0) {
     return { ok: false, message: "이미 가입된 이메일입니다. 로그인해 주세요." };
+  }
+
+  // 이메일 확인이 켜져 있으면 여기서 아직 세션이 없어 RLS로는 못 쓴다 — service_role로 우회한다.
+  // 계정 자체는 이미 만들어졌으므로 이 저장이 실패해도 가입 전체를 실패로 돌리지 않는다.
+  if (data.user) {
+    const { error: profileError } = await createAdminClient()
+      .from("profiles")
+      .upsert({ id: data.user.id, nickname });
+    if (profileError) {
+      log.error("login.nickname_save_failed", { message: profileError.message });
+    }
   }
 
   if (!data.session) {

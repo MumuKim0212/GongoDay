@@ -109,6 +109,9 @@ create table if not exists profiles (
   updated_at      timestamptz not null default now()
 );
 
+-- 회원가입 시 받는 표시 이름. profiles 행 자체가 정식 가입 시점에 (닉네임만 채운 채) 처음 생긴다.
+alter table profiles add column if not exists nickname text;
+
 -- 텔레그램 알림 연동 §11. 익명 세션에는 허용하지 않는다 — 쿠키가 지워지면 연동이 끊기고,
 -- 매시간 크론이 익명 유저를 만들 수 있어(§1.1) 익명에게 허용하면 쓸모없는 연동이 쌓인다.
 -- 서버 액션이 user.is_anonymous로 막는다 (스키마 제약이 아니다).

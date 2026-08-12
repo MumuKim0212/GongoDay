@@ -24,14 +24,7 @@ export default async function LoginPage({
     <main className="max-w-read mx-auto w-full px-4 py-8">
       <BackToList className="btn btn-ghost px-0">← 목록으로</BackToList>
 
-      <header className="mt-3">
-        <h1 className="text-title">로그인</h1>
-        <p className="text-body mt-2">
-          이메일과 비밀번호로 로그인하세요. 계정이 없다면 회원가입으로 바로 만들 수 있습니다.
-        </p>
-      </header>
-
-      {errorMessage ? <p className="text-small text-danger mt-3">{errorMessage}</p> : null}
+      {errorMessage ? <p className="text-small text-danger mt-3 text-center">{errorMessage}</p> : null}
 
       <PasswordLoginForm redirectTo={redirectTo} />
     </main>
