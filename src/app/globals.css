@@ -1,0 +1,581 @@
+@import "tailwindcss";
+
+/*
+ * Broadsheet 토큰
+ *
+ * 두 층으로 나뉜다.
+ *   1. 원색 — `--bs-*` 램프와 `--paper`/`--ink` 같은 역할 변수. 손으로 쓰는 CSS는 이 이름을 쓴다.
+ *   2. `@theme inline` — 같은 값을 Tailwind 유틸리티 이름으로 다시 노출한다.
+ *
+ * **다크는 원색 층에서만 뒤집는다.** 역할 변수의 값이 바뀌므로 유틸리티도 따라 뒤집힌다 —
+ * 그래서 컴포넌트에 `dark:`를 쓸 일이 없다.
+ */
+
+:root {
+  /* ── 램프 — 원본 styles.css 그대로. 절대값이라 다크에서도 같다 ────────
+     `--bs-` 접두사는 Tailwind 기본 팔레트(`--color-neutral-*` 등)와 겹치지 않기 위한 것이다.
+     한 단계만 덮으면 나머지 단계가 Tailwind 값으로 남아 램프가 섞인다. */
+  --bs-neutral-100: #f8f4f4;
+  --bs-neutral-200: #eae7e7;
+  --bs-neutral-300: #d7d3d3;
+  --bs-neutral-400: #bab6b6;
+  --bs-neutral-500: #9b9797;
+  --bs-neutral-600: #7d7979;
+  --bs-neutral-700: #605d5d;
+  --bs-neutral-800: #444141;
+  --bs-neutral-900: #2d2b2b;
+
+  --bs-accent-100: #e9f8ff;
+  --bs-accent-200: #cbeeff;
+  --bs-accent-300: #99e0ff;
+  --bs-accent-400: #62c5ee;
+  --bs-accent-500: #38a6cf;
+  --bs-accent-600: #1186ac;
+  --bs-accent-700: #006786;
+  --bs-accent-800: #004961;
+  --bs-accent-900: #0a303e;
+
+  --bs-accent-2-100: #fff1f4;
+  --bs-accent-2-200: #ffdee6;
+  --bs-accent-2-300: #ffc0d0;
+  --bs-accent-2-400: #ff90b1;
+  --bs-accent-2-500: #ff458e;
+  --bs-accent-2-600: #d82071;
+  --bs-accent-2-700: #aa0b56;
+  --bs-accent-2-800: #790e3d;
+  --bs-accent-2-900: #4b1528;
+
+  /* ── 역할 — 다크에서 뒤집힌다 ─────────────────────────────────── */
+  --paper: #f3f2f2;
+  --ink: #201e1d;
+
+  /* **카드는 언제나 바탕보다 밝다**. 전에는 라이트에서만 종이보다 어두워
+     다크와 방향이 반대였다 — 올려놓은 종이가 아니라 파인 자리로 읽혔다.
+     `.input`도 이 값을 쓰므로 종이 위에서 흰 칸으로 도드라진다. 카드 안에서 한 겹
+     더 들어가는 자리는 `--paper`로 되돌린다 — 이제 그쪽이 어두운 층이다. */
+  --surface: #fbfafa;
+
+  /* `--accent`는 링크·아이콘·테두리·큰 글자용이다. 종이색과 3.7:1이라 **채움 배경 위 작은
+     글자에는 못 쓴다** — 그 자리는 `--accent-ink`(5.7:1)다. */
+  --accent: #0088b0;
+  --accent-ink: var(--bs-accent-700);
+  --accent-on: var(--paper);
+  --accent-2: #d6006c;
+
+  /* 채움 버튼의 hover·pressed. 원본은 base→600→700이지만 base가 이미 700이라
+     한 단계씩 더 진한 쪽으로 민다 — 눌릴수록 잉크가 늘고 대비도 함께 올라간다. */
+  --accent-hover: var(--bs-accent-800);
+  --accent-active: var(--bs-accent-900);
+
+  /* 점수 배지의 잉크 농도 계단. 색조가 아니라 농도가 서열이다. */
+  --tint-accent-bg: var(--bs-accent-100);
+  --tint-accent-fg: var(--bs-accent-800);
+  --tint-accent-2-bg: var(--bs-accent-2-100);
+  --tint-accent-2-fg: var(--bs-accent-2-800);
+  --tint-neutral-bg: var(--bs-neutral-200);
+  --tint-neutral-fg: var(--bs-neutral-800);
+  --quiet-border: var(--bs-neutral-400);
+  --quiet-fg: var(--bs-neutral-700);
+
+  /* 오류 잉크. **이 시스템에 빨강은 없다** — 마젠타가 두 번째 스팟이고,
+     본문 크기로 읽히려면 램프의 깊은 단이어야 한다 (6.5:1). */
+  --danger: var(--bs-accent-2-700);
+
+  /* 읽어야 하는 보조 텍스트는 `--muted`(5.8:1)까지만. `--faint`는 3.6:1이라 장식용이다. */
+  --muted: color-mix(in srgb, var(--ink) 70%, transparent);
+  --faint: color-mix(in srgb, var(--ink) 55%, transparent);
+  --divider: color-mix(in srgb, var(--ink) 16%, transparent);
+
+  /* 여백의 단위 하나. `@theme`의 `--spacing`도 이것을 참조하므로 유틸리티와 컴포넌트
+     레이어가 같은 스케일 위에 있다. */
+  --space-unit: 5px;
+
+  /* 반경. 여백과 같은 두 층 구조다 — `@theme`의 `--radius-*`가 이 이름을
+     참조하므로 유틸리티(`rounded-md`)와 컴포넌트 레이어(`var(--r-md)`)가 같은 값을 쓴다.
+     **컴포넌트 레이어에서 `--radius-*`를 쓰면 안 된다** — 유틸리티가 안 쓰는 테마 변수는
+     Tailwind가 `:root`에 안 내보내 빈 문자열이 된다. */
+  --r-xs: 2px;
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 18px;
+  --r-pill: 999px;
+
+  --shadow-paper-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
+  --shadow-paper-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
+  --shadow-paper-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+
+  /* 라틴·숫자는 Source Sans 3이, 한글은 Noto Sans KR이 잡는다. **순서를 바꾸면 숫자까지
+     Noto가 가져간다**. */
+  --sans: var(--font-source-sans), var(--font-noto-sans-kr), system-ui, sans-serif;
+}
+
+/* 종이와 먹을 뒤집는다 — "잉크 위에 인쇄한 종이" */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #201e1d;
+    --ink: #f3f2f2;
+    --surface: var(--bs-neutral-900);
+
+    --accent: var(--bs-accent-300);
+    --accent-ink: var(--bs-accent-300);
+    --accent-on: #201e1d;
+    --accent-2: var(--bs-accent-2-300);
+
+    --accent-hover: var(--bs-accent-200);
+    --accent-active: var(--bs-accent-400);
+
+    --tint-accent-bg: var(--bs-accent-900);
+    --tint-accent-fg: var(--bs-accent-200);
+    --tint-accent-2-bg: var(--bs-accent-2-900);
+    --tint-accent-2-fg: var(--bs-accent-2-200);
+    --tint-neutral-bg: var(--bs-neutral-800);
+    --tint-neutral-fg: var(--bs-neutral-200);
+    --quiet-border: var(--bs-neutral-700);
+    --quiet-fg: var(--bs-neutral-400);
+    --danger: var(--bs-accent-2-300);
+
+    /* 어두운 바탕에서 그림자는 어둠으로 안 보인다. 헤어라인 + 주변 어둠으로 바꾼다. */
+    --shadow-paper-sm: 0 0 0 1px rgb(243 242 242 / 0.1), 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-paper-md: 0 0 0 1px rgb(243 242 242 / 0.1), 0 3px 10px rgb(0 0 0 / 0.45);
+    --shadow-paper-lg: 0 0 0 1px rgb(243 242 242 / 0.12), 0 12px 32px rgb(0 0 0 / 0.55);
+  }
+}
+
+/*
+ * `inline`이어야 한다 — 값을 복사하지 않고 `var()`를 그대로 참조하므로, 위 미디어 쿼리가
+ * 원색을 뒤집으면 유틸리티도 함께 뒤집힌다.
+ */
+@theme inline {
+  --color-bg: var(--paper);
+  --color-surface: var(--surface);
+  --color-text: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-divider: var(--divider);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-on: var(--accent-on);
+  --color-accent-2: var(--accent-2);
+  --color-danger: var(--danger);
+
+  --font-heading: var(--sans);
+  --font-body: var(--sans);
+
+  /* 타입 스케일. **여기 없는 크기를 쓰지 않는다.**
+     제목 다섯 단계는 굵기와 자간을 함께 들고 다닌다 — `text-title` 하나로 끝난다.
+
+     굵기는 전부 700이다. 세리프는 획 대비가 굵기를 대신해 주지만 산세리프는 굵기밖에
+     없어서, 600은 제목으로 안 읽힌다. */
+
+  /* 첫 화면 히어로 전용. **이 한 자리에만 쓴다** — 목록·상세·프로필의 제목은
+     `title`(25px)이다. 자간을 -0.03em까지 조인 것은 44px에서 -0.015em이 헐거워 보이기 때문이다. */
+  --text-hero: 44px;
+  --text-hero--line-height: 1.08;
+  --text-hero--letter-spacing: -0.03em;
+  --text-hero--font-weight: 700;
+
+  --text-display: 32px;
+  --text-display--line-height: 1.12;
+  --text-display--letter-spacing: -0.02em;
+  --text-display--font-weight: 700;
+
+  --text-title: 25px;
+  --text-title--line-height: 1.16;
+  --text-title--letter-spacing: -0.02em;
+  --text-title--font-weight: 700;
+
+  --text-section: 20px;
+  --text-section--line-height: 1.2;
+  --text-section--letter-spacing: -0.015em;
+  --text-section--font-weight: 700;
+
+  --text-sub: 16px;
+  --text-sub--line-height: 1.2;
+  --text-sub--font-weight: 700;
+
+  /* 한글은 글자 밀도가 높아 원본 행간(1.55)에서 뭉친다 */
+  --text-body: 15px;
+  --text-body--line-height: 1.7;
+
+  --text-compact: 14px;
+  --text-compact--line-height: 1.55;
+
+  --text-small: 13px;
+  --text-small--line-height: 1.6;
+
+  /* 원본의 10~11px 단계를 12px로 올렸다. 한글은 그 아래에서 읽히지 않는다. */
+  --text-micro: 12px;
+  --text-micro--line-height: 1.4;
+
+  /* Broadsheet의 여백 스케일은 5px × n이다 — 원본이 말하는 density 1.25×가 곧 4px × 1.25다.
+     이 한 줄로 `p-1`=5px … `p-8`=40px가 되어 모든 여백 유틸리티가 스케일 위에 올라선다.
+     **`w-*`·`h-*`도 같은 스케일을 타므로 고정 폭은 다시 봐야 한다.** */
+  --spacing: var(--space-unit);
+
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-pill: var(--r-pill);
+
+  /* 컨테이너 폭 — `max-w-page` / `max-w-read` */
+  --container-page: 1040px;
+  --container-read: 680px;
+
+  --shadow-sm: var(--shadow-paper-sm);
+  --shadow-md: var(--shadow-paper-md);
+  --shadow-lg: var(--shadow-paper-lg);
+}
+
+@layer base {
+  /* 네이티브 체크박스·셀렉트·스크롤바가 다크에서 흰 채로 남지 않게 한다 */
+  html {
+    color-scheme: light dark;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  /* 크기는 유틸리티가 정한다. 여기서는 서체와 굵기만 */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--sans);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  /* 원본은 `a`에 accent를 걸지만 여기서는 걸지 않는다. 본문 크기(15px)의 accent는 3.7:1로
+     AA에 못 미치고, 카드 제목처럼 먹빛이어야 할 링크까지 시안이 된다. 링크 색은
+     각 화면이 명시한다. */
+  a {
+    text-underline-offset: 3px;
+  }
+
+  /* 네이티브 체크박스·라디오도 시안으로 칠한다. 기본 파랑을 남기면 팔레트 밖 색이 하나 늘어난다. */
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--accent);
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  :focus {
+    outline: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+/*
+ * 컴포넌트 레이어
+ *
+ * **클래스로 만드는 것은 세 개뿐이다** — 여러 화면에서 반복되고 상태(hover/pressed)를 함께
+ * 들고 다녀야 하는 것들. 레이아웃·간격·1회성 스타일은 전부 유틸리티다.
+ *
+ * 여기서는 `--paper`·`--ink` 같은 원색 이름을 쓴다. `--color-*`·`--text-*`는 Tailwind가
+ * 쓰이지 않는 테마 변수를 `:root`에 내보내지 않아 손으로 쓰는 CSS에서 비어 있을 수 있다.
+ *
+ * 태그의 3px·6px처럼 스케일에 없는 값이 몇 개 있다 — 컴포넌트 내부의 미세 간격이고,
+ * 원본 styles.css도 같은 자리에 같은 값을 박아둔다.
+ */
+@layer components {
+  /* ── 버튼 ─────────────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    text-decoration: none;
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 14px;
+    line-height: 1.2;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid transparent;
+    padding: calc(var(--space-unit) * 2) calc(var(--space-unit) * 3.6);
+    border-radius: var(--r-sm);
+  }
+
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* 상태 변화는 누를 수 있는 버튼에만. 비활성 버튼이 hover에 반응하면 눌리는 것처럼 읽힌다. */
+  .btn-primary {
+    background: var(--accent-ink);
+    color: var(--accent-on);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+  .btn-primary:active:not(:disabled) {
+    background: var(--accent-active);
+  }
+
+  /* 종이 위에 올라온 칸이므로 채움이 있다 — 투명하게 두면 흰 카드 위에서 사라진다 */
+  .btn-secondary {
+    border-color: var(--divider);
+    background: var(--surface);
+  }
+  /* 틴트를 투명이 아니라 **채움 위에** 섞는다 — 투명으로 두면 hover에서 채움이 사라져
+     반투명 마스트헤드 뒤의 카드가 버튼을 통과해 비친다 */
+  .btn-secondary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--ink) 7%, var(--surface));
+  }
+  .btn-secondary:active:not(:disabled) {
+    background: color-mix(in srgb, var(--ink) 14%, var(--surface));
+  }
+
+  .btn-ghost {
+    color: var(--accent-ink);
+    padding-inline: var(--space-unit);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .btn-ghost:active:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  .btn-block {
+    width: 100%;
+  }
+
+  /* ── 태그 ─────────────────────────────────────────────────────────── */
+  /* 테두리는 모든 변형이 갖는다 — 없으면 채움 태그와 외곽선 태그의 크기가 1px씩 어긋난다. */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+    letter-spacing: 0.02em;
+    padding: 3px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--r-pill);
+    white-space: nowrap;
+  }
+
+  /* 잉크 농도 계단. 채움은 5점 하나뿐이라 목록에서 "볼 게 있는지"가 한눈에 잡힌다. */
+  .tag-solid {
+    background: var(--accent-ink);
+    color: var(--accent-on);
+  }
+  .tag-accent {
+    background: var(--tint-accent-bg);
+    color: var(--tint-accent-fg);
+  }
+  .tag-accent-2 {
+    background: var(--tint-accent-2-bg);
+    color: var(--tint-accent-2-fg);
+  }
+  .tag-neutral {
+    background: var(--tint-neutral-bg);
+    color: var(--tint-neutral-fg);
+  }
+  /* 글자는 `--accent`가 아니라 `--accent-ink`다 — 12px에서 `--accent`는 3.7:1이다 */
+  .tag-outline {
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  .tag-quiet {
+    border-color: var(--quiet-border);
+    color: var(--quiet-fg);
+  }
+  /* 판정 자체가 실패한 카드 — 점수 계단과 섞이면 안 되는 별도의 뜻이라 danger 잉크를 쓴다 */
+  .tag-danger {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  /* 태그를 컨트롤로 쓸 때 (분야 칩). 손가락이 닿아야 하므로 표시용 태그보다 크다 —
+     3px 패딩이면 24.8px라 누를 곳이 못 된다. */
+  .tag-btn {
+    cursor: pointer;
+    font-size: 13px;
+    padding: 6px 12px;
+  }
+  .tag-btn.tag-outline:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .tag-btn.tag-solid:hover {
+    background: var(--accent-hover);
+  }
+
+  /*
+   * 선택 칩 — `.tag .tag-btn .tag-outline .chip` 조합으로 쓴다.
+   *
+   * 목록의 분야 칩과 **같은 모습이어야 한다.** 같은 것을 고르는 컨트롤이 화면마다 다르게
+   * 생기면 사용자는 다른 기능으로 읽는다. 다만 저쪽은 `<button>`+JS 상태고 이쪽은
+   * **비제어 네이티브 입력**이다 — 저장이 실패해 폼이 다시 그려져도 고른 값이 남아야 하므로
+   * React 상태로 올릴 수 없다. 그래서 켜짐/꺼짐을 `:has(input:checked)`로 CSS가 판단한다.
+   *
+   * `::before`의 ✓는 장식이 아니라 색을 못 보는 사용자를 위한 두 번째 단서다.
+   */
+  .chip input {
+    position: absolute;
+    width: 0;
+    height: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .chip:has(input:checked) {
+    background: var(--accent-ink);
+    border-color: var(--accent-ink);
+    color: var(--accent-on);
+  }
+  .chip:has(input:checked)::before {
+    content: "✓";
+  }
+  .chip:has(input:checked):hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+  /* 입력을 숨겼으므로 포커스 링을 라벨이 대신 받는다 — 안 그러면 키보드로 위치를 알 수 없다 */
+  .chip:has(input:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ── 입력칸 ───────────────────────────────────────────────────────── */
+  .input {
+    width: 100%;
+    min-height: 36px;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--ink);
+    caret-color: var(--accent);
+    background: var(--surface);
+    border: 1px solid var(--divider);
+    border-radius: var(--r-sm);
+  }
+  /* 브라우저 기본 회색은 이 채움 위에서 4.5:1을 못 넘는다. 65% 잉크로 명시한다 —
+     `opacity: 1`은 Firefox의 기본 흐림을 되돌리기 위한 것이다. */
+  .input::placeholder {
+    color: color-mix(in srgb, var(--ink) 65%, transparent);
+    opacity: 1;
+  }
+  .input:hover {
+    border-color: color-mix(in srgb, var(--ink) 45%, transparent);
+  }
+  .input:focus-visible {
+    border-color: var(--accent);
+    outline-offset: 0;
+  }
+
+  /* ── 카드 ─────────────────────────────────────────────────────────── */
+  /* 페이지를 나누는 데 쓰지 않는다. 목록 항목처럼 **진짜 개별적인 것**에만 쓴다. */
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--space-unit) * 2);
+    padding: calc(var(--space-unit) * 3);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    border: 1px solid var(--divider);
+  }
+  /* 원본은 대문자 변환을 걸지만 한글에 효과가 없어 자간만 남긴다 */
+  .card-kicker {
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    color: var(--accent-ink);
+  }
+  .card-title {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 16px;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+  }
+  .card-body {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+  .card-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* ── 타일 ─────────────────────────────────────────── */
+  /*
+   * 그리드로 훑을 때의 카드다. `.card`와 나눈 이유는 **그림 자리가 가장자리까지 닿아야
+   * 하기 때문**이다 — `.card`는 안쪽 여백을 갖고 있어 붙일 수가 없다.
+   */
+  .tile {
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--r-md);
+    background: var(--surface);
+    border: 1px solid var(--divider);
+    overflow: hidden;
+  }
+
+  /*
+   * 그림 자리. 레퍼런스는 아이콘 사이트라 카드가 이미지로 시작하는데,
+   * **공고에는 이미지가 없다.** 분야 선화를 옅은 시안 워시 위에 세워 그 자리를 채운다.
+   *
+   * 워시는 `--tint-accent-bg`가 아니라 accent 8%다 — 그 토큰은 4점 배지의 채움이라
+   * 모든 타일이 그 색이면 배지가 묻힌다. 잉크는 하나이고 농도만 다르다.
+   */
+  .tile-media {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--accent) 8%, var(--surface)),
+      var(--surface) 78%
+    );
+    border-bottom: 1px solid var(--divider);
+    color: var(--accent-ink);
+  }
+
+  /* 배지는 그림 위 오른쪽 위다 — 목록 카드·상세와 같은 자리라 화면이 이어진다 */
+  .tile-badge {
+    position: absolute;
+    top: calc(var(--space-unit) * 2);
+    right: calc(var(--space-unit) * 2);
+  }
+
+  .tile-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: calc(var(--space-unit) * 1.4);
+    padding: calc(var(--space-unit) * 3);
+  }
+
+  .elev-sm {
+    box-shadow: var(--shadow-paper-sm);
+  }
+  .elev-md {
+    box-shadow: var(--shadow-paper-md);
+  }
+  .elev-lg {
+    box-shadow: var(--shadow-paper-lg);
+  }
+}

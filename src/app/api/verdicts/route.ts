@@ -1,0 +1,323 @@
+import { NextResponse } from "next/server";
+
+import { log } from "@/lib/log";
+import { PAGE_SIZE } from "@/lib/policies/query";
+import { isAiEnabled } from "@/lib/settings";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
+import { aiDisabledVerdict, applyGate, callAndValidate } from "@/lib/verdict/decide";
+import type { PolicyConditions, Profile } from "@/lib/verdict/gate";
+import { buildProfileText, type PolicySourceFields } from "@/lib/verdict/prompt";
+import { SIGNATURE_COLUMNS, profileSignature } from "@/lib/verdict/signature";
+import type { DecidedVerdict } from "@/lib/verdict/validate";
+
+/**
+ * 배치 판정 (ARCHITECTURE §5)
+ *
+ * ```
+ * 캐시 → 코드 게이트 → AI(게이트 통과분만) → 3단 검증 → upsert
+ * ```
+ *
+ * **요청은 `policyIds`만 받는다.** 프로필도 서명도 클라이언트에서 받지 않고 서버가 직접 조회해
+ * 계산한다 — 클라이언트가 보낸 조건으로 판정하면 남의 프로필로 캐시를 오염시킬 수 있다 (§2.3).
+ *
+ * **응답은 NDJSON 스트림이다.** 한 줄에 JSON 하나:
+ *
+ * ```
+ * {"t":"v","id":"<policy_id>","v":{…}}                 판정 한 건
+ * {"t":"v","id":"…","v":{…},"failed":true}             AI 호출 실패 — 저장 안 함, 다시 부를 수 있다
+ * {"t":"done","stats":{…}}                             마지막 줄
+ * ```
+ *
+ * 판정을 시작하기 전에 끝난 실패(세션·프로필·조회)는 스트림이 아니라 상태코드 붙은 JSON이다 —
+ * 스트림은 200으로 시작해버려서 그 뒤로는 실패를 알릴 방법이 없다.
+ */
+
+// 빼먹으면 로컬은 되고 배포에서만 끊긴다. 건당 15초 × 10건 병렬이라 이 상한 안에 들어간다 (§5.1.1).
+export const maxDuration = 60;
+
+/** 한 번에 현재 페이지 10건만. 호출 비용 통제의 핵심이다 */
+const MAX_BATCH = PAGE_SIZE;
+
+/** buildSourceText(§5.3) + checkGate(§5.0)가 읽는 칸. `raw`는 무거워서 넣지 않는다. */
+const POLICY_COLUMNS = [
+  "id",
+  "title",
+  "summary",
+  "org_name",
+  "eligibility_text",
+  "criteria_text",
+  "support_text",
+  "income_text",
+  "etc_text",
+  "apply_period",
+  "biz_period_etc",
+  "age_min",
+  "age_max",
+  "is_nationwide",
+  "region_sidos",
+  "region_sigungu",
+  "audiences",
+  "eligibility_codes",
+].join(",");
+
+type PolicyRow = PolicySourceFields & PolicyConditions & { id: string };
+
+const EMPTY_PROFILE_REASON = "판정에 쓸 조건이 비어 있습니다. 생년이나 사는 곳을 채워 주세요.";
+
+export async function POST(req: Request) {
+  const startedAt = Date.now();
+  const body: unknown = await req.json().catch(() => ({}));
+  const requested = Array.isArray((body as { policyIds?: unknown }).policyIds)
+    ? ((body as { policyIds: unknown[] }).policyIds.filter((v): v is string => typeof v === "string"))
+    : [];
+
+  if (requested.length === 0) {
+    return NextResponse.json({ error: "policyIds가 필요합니다." }, { status: 400 });
+  }
+  const policyIds = [...new Set(requested)].slice(0, MAX_BATCH);
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // 익명 세션 생성 실패 (§7). 목록은 계속 보이지만 판정은 저장할 곳이 없다.
+  if (!user) {
+    // **proxy는 API 경로에서 세션을 만들지 않는다** (§1.1) — 여기 오는 것은 쿠키를 잃었거나
+    // 화면을 거치지 않고 부른 요청이다. 안내대로 새로고침하면 그때는 화면 요청이라 세션이 생긴다.
+    // 다만 이게 꾸준히 늘면 proxy의 익명 로그인이 깨진 것일 수도 있다 — 목록은 멀쩡해 보여서
+    // 늦게 드러나는 종류라 세어 둔다.
+    log.warn("verdicts.no_session");
+    return NextResponse.json(
+      { error: "세션이 없어 판정할 수 없습니다. 새로고침한 뒤 다시 시도해 주세요." },
+      { status: 401 },
+    );
+  }
+
+  // 로그인 없이는 판정을 부를 수 없다.
+  if (user.is_anonymous) {
+    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  }
+
+  const { data: profileRow, error: profileError } = await supabase
+    .from("profiles")
+    .select(SIGNATURE_COLUMNS)
+    .eq("id", user.id)
+    .maybeSingle();
+
+  // ⚠️ **조회 실패를 '조건 없음'으로 흘리면 안 된다.** 빈 프로필은 게이트를 전건 통과시키므로
+  // 실패가 "아무 조건도 없는 사용자"로 둔갑해 엉뚱한 판정이 캐시에 저장된다.
+  if (profileError) {
+    log.error("verdicts.profile_failed", { message: profileError.message });
+    return NextResponse.json(
+      { error: "내 조건을 읽지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 },
+    );
+  }
+  if (!profileRow) {
+    return NextResponse.json({ error: "먼저 내 조건을 입력해 주세요." }, { status: 400 });
+  }
+
+  const profile = profileRow as unknown as Profile;
+  const signature = profileSignature(profile);
+  const profileText = buildProfileText(profile);
+
+  const { data: policyRows, error: policyError } = await supabase
+    .from("policies")
+    .select(POLICY_COLUMNS)
+    .in("id", policyIds);
+
+  if (policyError) {
+    log.error("verdicts.policies_failed", { count: policyIds.length, message: policyError.message });
+    return NextResponse.json(
+      { error: "정책을 읽지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 },
+    );
+  }
+  const policies = (policyRows ?? []) as unknown as PolicyRow[];
+
+  // 캐시 — (정책, 서명)이 같으면 다시 판정하지 않는다. 서명이 다르면 안 잡히고 재판정된다.
+  // **사용자로 걸러지 않는다.** 판정은 서명과 원문에만 의존하므로 남이 부른 것도 그대로 쓴다 (§2.3).
+  const db = createAdminClient();
+  const { data: cached, error: cacheError } = await db
+    .from("verdicts")
+    .select("policy_id, verdict, decided_by, reason, quote, quote_verified, blockers, checks")
+    .eq("profile_signature", signature)
+    .in("policy_id", policyIds);
+
+  // ⚠️ **이 실패는 조용히 돈이 된다.** 캐시를 못 읽으면 빈 것으로 취급되어 게이트 통과분이 전건
+  // 재호출된다 — 사용자에게는 정상으로 보이고 화면 어디에도 흔적이 없다. 위 프로필 조회처럼
+  // 요청을 세우지는 않는다 (판정은 정상적으로 나오므로 §7 "어떤 실패도 화면을 비우지 않는다"),
+  // 대신 로그와 `verdict_runs`에 남겨 비용이 튄 이유를 나중에 되짚을 수 있게 한다.
+  if (cacheError) {
+    log.error("verdicts.cache_failed", { count: policyIds.length, message: cacheError.message });
+  }
+
+  const verdicts: Record<string, DecidedVerdict> = {};
+  for (const row of cached ?? []) {
+    const { policy_id, ...v } = row as { policy_id: string } & DecidedVerdict;
+    verdicts[policy_id] = v;
+  }
+
+  const stats = {
+    requested: policyIds.length,
+    cached: Object.keys(verdicts).length,
+    gate_blocked: 0,
+    /** AI에 실제로 보낸 건수. `verdict-api-check`가 이 값이 0인지를 본다 */
+    ai_called: 0,
+    ai_failed: 0,
+    /** 실제 청구 단위. 호출 수가 아니라 이 값이 비용이다 (§5.1.3) */
+    prompt_tokens: 0,
+    output_tokens: 0,
+    cache_error: Boolean(cacheError),
+    save_error: null as string | null,
+  };
+
+  const aiEnabled = await isAiEnabled();
+
+  const toSave: (DecidedVerdict & { policy_id: string })[] = [];
+  const forAi: PolicyRow[] = [];
+
+  for (const policy of policies) {
+    if (verdicts[policy.id]) continue;
+
+    const gated = applyGate(policy, profile);
+    if (gated !== null) {
+      // 코드로 답이 나온 건 AI를 부르지 않는다. blockers가 "왜 아닌지"를 말한다.
+      stats.gate_blocked++;
+      verdicts[policy.id] = gated;
+      toSave.push({ ...gated, policy_id: policy.id });
+      continue;
+    }
+
+    // 모든 항목이 선택이라 조건이 통째로 빈 프로필이 저장될 수 있다.
+    // 그 상태로 부르면 시스템 프롬프트 규칙 3에 따라 전건 unclear가 나온다 — 호출만 낭비다.
+    // **저장하지 않는다**: 조건을 채우면 서명이 바뀌므로 캐시에 남길 이유도 없다.
+    if (profileText === "") {
+      verdicts[policy.id] = {
+        verdict: "unclear",
+        decided_by: "code",
+        reason: EMPTY_PROFILE_REASON,
+        quote: null,
+        quote_verified: false,
+        blockers: [],
+        checks: [],
+      };
+      continue;
+    }
+
+    // 관리자가 AI 판정을 꺼둔 동안은 AI를 부르지 않는다 (`lib/settings.ts`).
+    // **저장하지 않는다** — 다시 켜면 이 카드들이 그대로 재판정되어야 한다.
+    if (!aiEnabled) {
+      verdicts[policy.id] = aiDisabledVerdict();
+      continue;
+    }
+
+    forAi.push(policy);
+  }
+
+  stats.ai_called = forAi.length;
+
+  // 여기서부터 스트림이다. **묶어서 부르는 게 싼 게 아니었다** — 아래 호출은 예전부터 병렬이었고,
+  // 응답이 JSON 한 덩어리라 제일 느린 1건이 나머지를 붙잡고 있었을 뿐이다. 끝나는 대로 한 줄씩 흘린다.
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let open = true;
+      const line = (obj: unknown) => {
+        if (!open) return;
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
+        } catch {
+          // 클라이언트가 끊었다. **판정은 계속 받아 저장한다** — 이미 값을 치른 호출이라
+          // 여기서 버리면 다음 방문에 똑같이 다시 부른다.
+          open = false;
+        }
+      };
+
+      // 캐시·게이트·빈 프로필분은 이미 답이 나와 있다. 첫 줄부터 배지가 붙는다.
+      for (const [id, v] of Object.entries(verdicts)) line({ t: "v", id, v });
+
+      // 게이트 통과분. 건당 타임아웃은 gemini.ts 안에 있고, callAndValidate는 throw하지 않는다.
+      await Promise.all(
+        forAi.map(async (policy) => {
+          const { decided, usage, failed } = await callAndValidate(profileText, policy);
+
+          // 실패분도 더한다 — 응답을 받고 나서 실패한 호출은 토큰이 이미 청구됐다 (gemini.ts).
+          stats.prompt_tokens += usage.promptTokens;
+          stats.output_tokens += usage.outputTokens;
+
+          if (failed) {
+            // 호출 자체가 실패했다 (키·네트워크·타임아웃). 이 카드만 '애매'이고 나머지는 정상이다 (§7).
+            // **저장하지 않는다** — 판정이 아니라 판정 못 함이라 다시 부르면 재시도되어야 한다.
+            // `failed`로 표시해 보내 화면이 '다시 판정' 손잡이를 띄울 수 있게 한다.
+            stats.ai_failed++;
+            line({ t: "v", id: policy.id, failed: true, v: decided });
+            return;
+          }
+
+          // 검증 실패(인용이 원문에 없음)는 저장한다 — temperature 0이라 다시 물어도 같은 답이 온다 (ARCHITECTURE §5).
+          toSave.push({ ...decided, policy_id: policy.id });
+          line({ t: "v", id: policy.id, v: decided });
+        }),
+      );
+
+      if (toSave.length > 0) {
+        // 공유 캐시라 RLS 정책이 없다 — 이 라우트만 쓴다. 서명은 위에서 서버가 계산한 값이므로
+        // 클라이언트가 남의 캐시 자리에 쓸 방법이 없다 (§2.5). `requested_by`는 기록일 뿐 키가 아니다.
+        const { error } = await db.from("verdicts").upsert(
+          toSave.map((row) => ({ ...row, requested_by: user.id, profile_signature: signature })),
+          { onConflict: "policy_id,profile_signature" },
+        );
+        // 저장 실패가 판정 결과를 못 쓰게 만들 이유는 없다. 화면엔 그대로 보여주고 다음에 다시 시도된다.
+        if (error) {
+          // 사용자는 판정을 정상으로 받는다. **다시 열어도 캐시가 비어 또 부른다**는 게 진짜 비용이라
+          // 화면에 안 보이는 이 실패를 로그로 세워둔다.
+          stats.save_error = error.message;
+          log.error("verdicts.save_failed", { count: toSave.length, message: error.message });
+        }
+      }
+
+      const durationMs = Date.now() - startedAt;
+
+      // 호출 비용 장부. `ai_called`가 0인지를 `verdict-api-check`가 보고,
+      // `cached`와의 비율이 캐시가 실제로 듣고 있는지를 말해준다.
+      log.info("verdicts.batch", { ...stats, durationMs });
+
+      // 같은 장부를 DB에도 남긴다. 로그는 Vercel 대시보드에서만 읽히고 앱이 되읽을 수 없어서
+      // 운영 화면이 "캐시가 듣고 있나 · 토큰을 얼마나 썼나"에 답하지 못했다 (§2.7).
+      // **판정 결과와 무관하므로 실패해도 응답을 건드리지 않는다** — 저장 실패와 같은 취급이다.
+      const { error: ledgerError } = await db.from("verdict_runs").insert({
+        requested_by: user.id,
+        was_anonymous: Boolean(user.is_anonymous),
+        profile_signature: signature,
+        requested: stats.requested,
+        cached: stats.cached,
+        gate_blocked: stats.gate_blocked,
+        ai_called: stats.ai_called,
+        ai_failed: stats.ai_failed,
+        prompt_tokens: stats.prompt_tokens,
+        output_tokens: stats.output_tokens,
+        cache_error: stats.cache_error,
+        save_error: stats.save_error !== null,
+        duration_ms: durationMs,
+      });
+      if (ledgerError) {
+        log.warn("verdicts.ledger_failed", { message: ledgerError.message });
+      }
+
+      line({ t: "done", stats });
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+      // 중간 프록시가 버퍼링하면 스트리밍이 통째로 무의미해진다
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
