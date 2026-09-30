@@ -89,7 +89,8 @@ export function toPolicy(raw: unknown): PolicyInsert {
     keywords: text(r.plcyKywdNm),
     apply_period: text(r.aplyYmd), // 파싱하지 않고 원문 그대로
     biz_period_etc: text(r.bizPrdEtcCn),
-    source_url: text(r.aplyUrlAddr) ?? text(r.refUrlAddr1),
+    // 공고 주소(참고 URL)를 신청 사이트보다 앞에 둔다 — 링크는 "원문 보기"로 쓰인다
+    source_url: text(r.refUrlAddr1) ?? text(r.refUrlAddr2) ?? text(r.aplyUrlAddr),
 
     raw: r,
     source_registered_at: timestamp(r.frstRegDt),

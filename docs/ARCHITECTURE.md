@@ -194,7 +194,7 @@ create index on policies (source_registered_at desc);
 | keywords | `plcyKywdNm` | |
 | org_name | `sprvsnInstCdNm` | |
 | apply_period / biz_period_etc | `aplyYmd` / `bizPrdEtcCn` | 49.8% / 40.5% |
-| source_url | `aplyUrlAddr` \|\| `refUrlAddr1` | |
+| source_url | `refUrlAddr1` \|\| `refUrlAddr2` \|\| `aplyUrlAddr` | 공고 주소 우선, 신청 사이트는 폴백 |
 | source_registered_at / source_updated_at | `frstRegDt` / `lastMdfcnDt` | |
 | eligibility_codes.unknown | `earnCndSeCd`, `jobCd`, `schoolCd`, `plcyMajorCd`, `mrgSttsCd`, `sbizCd`, `aplyPrdSeCd` | |
 
@@ -222,7 +222,7 @@ create index on policies (source_registered_at desc);
 | audiences | `사용자구분` (`\|\|` 분리) | |
 | org_name / org_type | `소관기관명` / `소관기관유형` | |
 | apply_period | `신청기한` | 100% |
-| source_url | `온라인신청사이트URL` \|\| `상세조회URL` | |
+| source_url | `상세조회URL` \|\| `온라인신청사이트URL` | 공고 주소 우선, 신청 사이트는 폴백 |
 | source_registered_at / source_updated_at | `등록일시` / `수정일시` | |
 | eligibility_codes | `JA01xx`→gender, `JA02xx`→income, `JA03xx`→situation, `JA04xx`→household, `JA11xx`→business | 63~68% |
 

@@ -48,7 +48,7 @@ const MAX_POLICIES = 50;
  */
 const AI_CONCURRENCY = 10;
 
-/** notify가 읽는 정책 칸. buildSourceText + checkGate가 읽는 칸(§5.3, §5.0) + 알림 메시지용 source_url. */
+/** notify가 읽는 정책 칸. buildSourceText + checkGate가 읽는 칸(§5.3, §5.0). */
 const POLICY_COLUMNS = [
   "id",
   "title",
@@ -68,10 +68,9 @@ const POLICY_COLUMNS = [
   "region_sigungu",
   "audiences",
   "eligibility_codes",
-  "source_url",
 ].join(",");
 
-type PolicyRow = PolicySourceFields & PolicyConditions & { id: string; source_url: string | null };
+type PolicyRow = PolicySourceFields & PolicyConditions & { id: string };
 
 type Recipient = Profile & { id: string; telegram_chat_id: string; telegram_notify_min_score: number };
 
@@ -101,6 +100,7 @@ export async function POST(req: Request) {
   }
 
   const startedAt = Date.now();
+  const { origin } = new URL(req.url); // 크론이 SYNC_URL로 부른 배포 주소 — 메시지의 상세 링크 기준
   const db = createAdminClient();
 
   const { data: run, error: runError } = await db
@@ -284,7 +284,7 @@ export async function POST(req: Request) {
       if (score < recipient.telegram_notify_min_score) continue;
       if (alreadyNotified.has(`${policy.id}:${recipient.id}`)) continue;
 
-      const result = await sendMessage(recipient.telegram_chat_id, formatMessage(policy, verdict, score));
+      const result = await sendMessage(recipient.telegram_chat_id, formatMessage(policy, verdict, score, origin));
       if (result.ok) {
         stats.sent++;
         sentPairs.push({ policy_id: policy.id, profile_id: recipient.id });
@@ -373,13 +373,14 @@ async function finishRun(
  * 확인 항목·이유가 같은 굵기면 어디서 한 건이 끝나는지 눈으로 잡히지 않는다.
  * 태그는 여기서만 넣고 값은 그 전에 이스케이프한다 — 정책명에 든 `<`가 태그로 읽히면 안 된다.
  */
-function formatMessage(policy: PolicyRow, verdict: DecidedVerdict, score: number): string {
+function formatMessage(policy: PolicyRow, verdict: DecidedVerdict, score: number, origin: string): string {
   const lines = [`[${score}점] <b>${escapeHtml(policy.title)}</b>`];
   if (verdict.checks.length > 0) {
     lines.push(`확인 ${verdict.checks.length}개: ${escapeHtml(verdict.checks[0])}`);
   }
   if (verdict.reason) lines.push(escapeHtml(verdict.reason));
-  if (policy.source_url) lines.push("", `원문: ${escapeHtml(policy.source_url)}`);
+  // 외부 원문이 아니라 서비스 상세 페이지로 보낸다 — 공고·신청 링크는 거기서 이어진다.
+  lines.push("", `상세: ${origin}/policies/${policy.id}`);
   return lines.join("\n");
 }
 

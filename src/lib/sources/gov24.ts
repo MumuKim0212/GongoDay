@@ -135,7 +135,7 @@ export function toPolicy(raw: unknown): PolicyInsert {
     keywords: null,
     apply_period: text(s["신청기한"]),
     biz_period_etc: null,
-    source_url: text(s["온라인신청사이트URL"]) ?? text(s["상세조회URL"]),
+    source_url: text(s["상세조회URL"]) ?? text(s["온라인신청사이트URL"]),
 
     raw: { svc: s, cond },
     source_registered_at: timestamp(s["등록일시"]),
