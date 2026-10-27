@@ -106,10 +106,20 @@ export async function fetchChangedList(
 /**
  * 서비스 하나의 지원조건. 없으면 null — 벌크 조인의 `joinMisses`와 같은 상태다.
  * **실패는 throw한다.** null로 삼키면 호출자가 "조건 없음"으로 저장해 기존 코드를 지운다.
+ *
+ * **돌아온 건이 요청한 서비스인지 확인한다.** 벌크 조인만 쓰던 시절엔 이 조건을 실제로 써 본 적이
+ * 없다. 조건이 무시되면 1페이지 첫 건 — 남의 자격 코드가 오는데, 오류 없이 그대로 덮어써지고
+ * 게이트·판정 캐시·알림까지 조용히 틀린다. 그래서 어긋나면 실패로 돌려 저장을 건너뛰게 한다.
  */
 export async function fetchConditions(serviceId: string): Promise<Raw | null> {
   const res = await get("supportConditions", 1, 1, { "서비스ID::EQ": serviceId });
-  return res.data?.[0] ?? null;
+  const cond = res.data?.[0] ?? null;
+  if ((res.totalCount ?? 0) > 1 || (cond && text(cond["서비스ID"]) !== serviceId)) {
+    throw new Error(
+      `정부24 supportConditions 서비스ID 조건이 무시됨 (요청 ${serviceId}, 응답 ${text(cond?.["서비스ID"])}, totalCount ${res.totalCount})`,
+    );
+  }
+  return cond;
 }
 
 /**
