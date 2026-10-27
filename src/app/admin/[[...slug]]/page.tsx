@@ -94,9 +94,9 @@ export default async function AdminPage({ params }: PageProps<"/admin/[[...slug]
                 <div className="mt-3">
                   <SyncButton slug={slug} />
                   <p className="mt-1 text-xs text-gray-500">
-                    평소 수집은 <strong>매시간 GitHub Actions</strong>가 돌립니다(
-                    <code>.github/workflows/sync.yml</code>). 한 번에 10페이지씩이라 온통청년은 3시간, 정부24는
-                    11시간에 한 바퀴입니다 — 이 버튼은 <strong>지금 당장</strong> 한 바퀴 더 돌릴 때만 쓰고, 그냥
+                    평소 수집은 <strong>20분마다 GitHub Actions</strong>가 돌립니다(
+                    <code>.github/workflows/sync.yml</code>). 한 번에 10페이지씩이라 온통청년은 1시간, 정부24는
+                    약 3.7시간에 한 바퀴입니다(정부24 새 공고는 증분 수집으로 매번 먼저 받습니다) — 이 버튼은 <strong>지금 당장</strong> 한 바퀴 더 돌릴 때만 쓰고, 그냥
                     두면 크론이 마저 받아갑니다.
                   </p>
                 </div>

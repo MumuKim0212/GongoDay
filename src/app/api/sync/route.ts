@@ -4,11 +4,12 @@ import { log } from "@/lib/log";
 import { isSourceName, runSync } from "@/lib/sync/run";
 
 /**
- * 수집 트리거 — **매시간 크론 전용** (`.github/workflows/sync.yml`).
+ * 수집 트리거 — **20분 크론 전용** (`.github/workflows/sync.yml`).
  *
  * Vercel Hobby 크론은 하루 1회까지라(`0 * * * *`는 배포가 실패한다) 트리거를 GitHub Actions에 둔다.
- * 한 번에 10페이지씩이라 정부24 한 바퀴는 11시간에 걸쳐 채워진다 — 어디서 끊기든
- * `last_page`가 남고 다음 정각이 이어받으므로 체인이나 감시 장치가 필요 없다.
+ * 한 번에 10페이지씩이라 정부24 한 바퀴는 트리거 11번(약 3.7시간)에 걸쳐 채워진다 — 어디서 끊기든
+ * `last_page`가 남고 다음 트리거가 이어받으므로 체인이나 감시 장치가 필요 없다.
+ * 새 공고는 그 한 바퀴를 기다리지 않는다 — 증분 수집이 먼저 받는다 (`lib/sync/incremental.ts`).
  *
  * **인증이 없으면 누구나 두 소스 수집을 계속 돌릴 수 있다** — 공공 API 키 쿼터가 그대로 탄다.
  * 운영자용 갱신 버튼은 이 라우트를 거치지 않는다 (admin 서버 액션이 `runSync`를 직접 부른다).

@@ -22,13 +22,19 @@ const CODE_GROUPS = {
   business: ["JA1101", "JA1102", "JA1103"],
 } as const;
 
-async function get(path: string, page: number, perPage: number) {
+/** odcloud 조건 파라미터. 키는 `필드::연산자` 꼴이고 `cond[...]`로 감싸 보낸다. */
+type Cond = Record<string, string>;
+
+async function get(path: string, page: number, perPage: number, cond: Cond = {}) {
   const key = process.env.GOV24_API_KEY;
   if (!key) throw new Error("환경 변수 GOV24_API_KEY가 없습니다.");
 
+  const params = new URLSearchParams({ page: String(page), perPage: String(perPage), returnType: "JSON" });
+  for (const [k, v] of Object.entries(cond)) params.set(`cond[${k}]`, v);
+
   // 키에 +와 ==가 들어 있어 쿼리스트링에 넣으면 이중 인코딩으로 깨진다.
   // 발급값이 "Infuser "로 시작하므로 그 문자열 전체가 헤더 값이다.
-  const res = await fetch(`${BASE}/${path}?page=${page}&perPage=${perPage}&returnType=JSON`, {
+  const res = await fetch(`${BASE}/${path}?${params}`, {
     headers: { Authorization: key },
     cache: "no-store",
   });
@@ -67,6 +73,43 @@ export async function fetchPage(page: number, size: number) {
     totalCount: list.totalCount ?? 0,
     joinMisses: items.filter((i) => !i.cond).length,
   };
+}
+
+/**
+ * `since` 이후 등록·수정된 서비스 목록 (증분 수집, `lib/sync/incremental.ts`).
+ *
+ * `serviceList`만 `등록일시`·`수정일시` 범위 조건을 받는다 (명세 swagger 확인).
+ * odcloud 조건은 AND로만 묶이므로 두 필드를 따로 묻는다 — 신규 건의 `수정일시`가 비어 올 수 있다.
+ *
+ * `totalCount`가 `maxItems`를 넘으면 목록을 받지 않고 `items: null`을 돌려준다.
+ * 조건이 무시돼 전량이 돌아온 경우도 여기서 걸린다 — 그 판단은 호출자가 한다.
+ */
+export async function fetchChangedList(
+  field: "등록일시" | "수정일시",
+  since: string,
+  maxItems: number,
+): Promise<{ items: Raw[] | null; totalCount: number }> {
+  const cond = { [`${field}::GTE`]: since };
+  const first = await get("serviceList", 1, 100, cond);
+  const totalCount = first.totalCount ?? 0;
+  if (totalCount > maxItems) return { items: null, totalCount };
+
+  const items = [...(first.data ?? [])];
+  for (let page = 2; items.length < totalCount; page++) {
+    const next = await get("serviceList", page, 100, cond);
+    if (!next.data?.length) break;
+    items.push(...next.data);
+  }
+  return { items, totalCount };
+}
+
+/**
+ * 서비스 하나의 지원조건. 없으면 null — 벌크 조인의 `joinMisses`와 같은 상태다.
+ * **실패는 throw한다.** null로 삼키면 호출자가 "조건 없음"으로 저장해 기존 코드를 지운다.
+ */
+export async function fetchConditions(serviceId: string): Promise<Raw | null> {
+  const res = await get("supportConditions", 1, 1, { "서비스ID::EQ": serviceId });
+  return res.data?.[0] ?? null;
 }
 
 /**

@@ -530,7 +530,7 @@ async function verdictCounts(db: SupabaseClient): Promise<AdminStats["verdicts"]
  */
 async function syncStatus(db: SupabaseClient): Promise<SyncStatus[]> {
   // 완주 시각은 따로 묻는다. 최근 100건 창 안에 정부24 완주가 없을 수 있어서다 —
-  // 매시간 트리거면 이 창이 이틀치밖에 안 되고, 정부24는 11시간에 한 번만 완주한다.
+  // 20분 트리거면 이 창이 하루치도 안 되고, 정부24는 약 3.7시간에 한 번만 완주한다.
   const [{ data }, full] = await Promise.all([
     db
       .from("sync_runs")

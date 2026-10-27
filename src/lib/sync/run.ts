@@ -4,10 +4,14 @@ import * as gov24 from "@/lib/sources/gov24";
 import * as youth from "@/lib/sources/youth";
 import type { PolicyInsert } from "@/lib/sources/types";
 
+import { syncGov24Changes, type IncrementalResult } from "./incremental";
+
 /**
  * 수집 1회분 (ARCHITECTURE §4).
  *
- * 부르는 곳이 둘이라 라우트에서 빼냈다 — 매시간 크론(`POST /api/sync`)과
+ * 정부24는 전량 순회 앞에 증분 수집(`incremental.ts`)을 먼저 돈다 — 새 공고가 커서를 기다리지 않게.
+ *
+ * 부르는 곳이 둘이라 라우트에서 빼냈다 — 20분 크론(`POST /api/sync`)과
  * 운영자 갱신 버튼(admin 서버 액션)이다. 버튼이 라우트를 거치지 않는 이유는
  * `CRON_SECRET`을 브라우저로 내려보내지 않기 위해서다.
  */
@@ -18,9 +22,15 @@ const PAGE_SIZE = 100;
  * 한 번에 받는 페이지 수. 라우트 상한(60초) 안에 들어가야 한다.
  *
  * 전량은 한 번에 안 끝난다 — 온통청년 27페이지(3회), 정부24 110페이지(11회).
- * `last_page`로 이어받으므로 **매시간 트리거가 몇 시간에 걸쳐 한 바퀴를 채운다.**
+ * `last_page`로 이어받으므로 **20분 트리거가 몇 시간에 걸쳐 한 바퀴를 채운다.**
  */
 const PAGES_PER_CALL = 10;
+
+/**
+ * 이 시간이 지나면 새 페이지를 시작하지 않는다. 증분 수집이 앞에서 시간을 쓰므로
+ * 페이지 수만으로는 라우트 상한(60초)을 보장할 수 없다. 남은 페이지는 다음 트리거가 이어받는다.
+ */
+const PAGE_BUDGET_MS = 40_000;
 
 // 소스별 분기는 여기서 끝난다. 판정 로직은 소스를 모른다.
 const SOURCES = { youth, gov24 };
@@ -48,6 +58,8 @@ export type SyncResult = {
   totalPages: number;
   /** 전량을 끝까지 받았는가. 다음 트리거는 1페이지부터 다시 훑는다 */
   done: boolean;
+  /** 증분 수집 결과. 정부24만 돈다. 실패했거나 해당 없으면 null */
+  incremental: IncrementalResult | null;
   error: string | null;
 };
 
@@ -62,6 +74,7 @@ export function syncRejected(source: string, error: string): SyncResult {
     lastCompleted: 0,
     totalPages: 0,
     done: false,
+    incremental: null,
     error,
   };
 }
@@ -128,8 +141,22 @@ export async function runSync(source: SourceName, trigger: SyncTrigger): Promise
 
   log.info("sync.start", { source, trigger, fromPage: page });
 
+  // 증분은 실패해도 수집 실패가 아니다 — 전량 순회가 같은 건을 결국 받는다 (`incremental.ts`).
+  // 그래서 `error`에 넣지 않는다. 넣으면 이번 실행이 실패로 집계되고 "마지막 갱신"에서도 빠진다.
+  let incremental: IncrementalResult | null = null;
+  if (source === "gov24") {
+    try {
+      incremental = await syncGov24Changes(db);
+      upserted += incremental.upserted;
+    } catch (e) {
+      log.error("sync.incremental_failed", { source, trigger, message: errorMessage(e) });
+    }
+  }
+
   try {
     for (let n = 0; n < PAGES_PER_CALL; n++) {
+      if (n > 0 && Date.now() - startedAt > PAGE_BUDGET_MS) break;
+
       // 두 소스를 공통 인터페이스로 묶지 않아서 반환 타입이 union이다.
       // gov24만 joinMisses를 준다.
       const res: { items: unknown[]; totalCount: number; joinMisses?: number } = await withRetry(
@@ -202,9 +229,21 @@ export async function runSync(source: SourceName, trigger: SyncTrigger): Promise
     lastCompleted,
     totalPages,
     done,
+    incrementalUpserted: incremental?.upserted ?? null,
     durationMs: Date.now() - startedAt,
     error,
   });
 
-  return { source, fetched, upserted, joinMisses, nextPage: lastPage + 1, lastCompleted, totalPages, done, error };
+  return {
+    source,
+    fetched,
+    upserted,
+    joinMisses,
+    nextPage: lastPage + 1,
+    lastCompleted,
+    totalPages,
+    done,
+    incremental,
+    error,
+  };
 }
