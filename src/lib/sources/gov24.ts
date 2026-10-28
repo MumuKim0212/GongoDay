@@ -40,7 +40,8 @@ async function get(path: string, page: number, perPage: number, cond: Cond = {})
   });
   if (!res.ok) throw new Error(`정부24 ${path} HTTP ${res.status} (page ${page})`);
 
-  return (await res.json()) as { totalCount?: number; data?: Raw[] };
+  // **`totalCount`는 조건과 무관하게 항상 전량이다.** 조건에 맞은 건수는 `matchCount`다 (실측).
+  return (await res.json()) as { totalCount?: number; matchCount?: number; data?: Raw[] };
 }
 
 /**
@@ -81,45 +82,42 @@ export async function fetchPage(page: number, size: number) {
  * `serviceList`만 `등록일시`·`수정일시` 범위 조건을 받는다 (명세 swagger 확인).
  * odcloud 조건은 AND로만 묶이므로 두 필드를 따로 묻는다 — 신규 건의 `수정일시`가 비어 올 수 있다.
  *
- * `totalCount`가 `maxItems`를 넘으면 목록을 받지 않고 `items: null`을 돌려준다.
- * 조건이 무시돼 전량이 돌아온 경우도 여기서 걸린다 — 그 판단은 호출자가 한다.
+ * ⚠️ **비교는 문자열 비교다** (실측). 원문 값이 `"20261028094907"` 14자리 문자열이라 `since`도
+ * 같은 꼴(`YYYYMMDDHHmmss`)이어야 한다. `"2026-10-27"`을 넣으면 `'0' > '-'`라서 2026년 건이
+ * 전부 걸린다 (224건 오매칭).
+ *
+ * 건수는 `matchCount`로 본다 — `totalCount`는 조건과 무관하게 전량이다. `maxItems`를 넘으면
+ * `items: null`을 돌려준다. 한 번의 요청으로 받으므로(perPage 2,000까지 1초 이내로 실측) 페이징하지 않는다.
  */
 export async function fetchChangedList(
   field: "등록일시" | "수정일시",
   since: string,
   maxItems: number,
-): Promise<{ items: Raw[] | null; totalCount: number }> {
-  const cond = { [`${field}::GTE`]: since };
-  const first = await get("serviceList", 1, 100, cond);
-  const totalCount = first.totalCount ?? 0;
-  if (totalCount > maxItems) return { items: null, totalCount };
-
-  const items = [...(first.data ?? [])];
-  for (let page = 2; items.length < totalCount; page++) {
-    const next = await get("serviceList", page, 100, cond);
-    if (!next.data?.length) break;
-    items.push(...next.data);
-  }
-  return { items, totalCount };
+): Promise<{ items: Raw[] | null; matchCount: number }> {
+  const res = await get("serviceList", 1, maxItems, { [`${field}::GTE`]: since });
+  const matchCount = res.matchCount ?? res.totalCount ?? 0;
+  if (matchCount > maxItems) return { items: null, matchCount };
+  return { items: res.data ?? [], matchCount };
 }
 
 /**
- * 서비스 하나의 지원조건. 없으면 null — 벌크 조인의 `joinMisses`와 같은 상태다.
- * **실패는 throw한다.** null로 삼키면 호출자가 "조건 없음"으로 저장해 기존 코드를 지운다.
+ * 지원조건 전량 → `서비스ID`별 Map (증분 수집용). 2,000건씩 6번, 수 초다 (실측: 2,000건 0.65초).
  *
- * **돌아온 건이 요청한 서비스인지 확인한다.** 벌크 조인만 쓰던 시절엔 이 조건을 실제로 써 본 적이
- * 없다. 조건이 무시되면 1페이지 첫 건 — 남의 자격 코드가 오는데, 오류 없이 그대로 덮어써지고
- * 게이트·판정 캐시·알림까지 조용히 틀린다. 그래서 어긋나면 실패로 돌려 저장을 건너뛰게 한다.
+ * 건별 조회(`cond[서비스ID::EQ]`)는 조건 자체는 정확히 먹히지만 10건 동시 호출에서 429로 절반이
+ * 막혔다. 증분에서 바뀐 건이 많은 시간대(업무 시간 3시간 창에 약 190건)에는 전량이 훨씬 싸다.
  */
-export async function fetchConditions(serviceId: string): Promise<Raw | null> {
-  const res = await get("supportConditions", 1, 1, { "서비스ID::EQ": serviceId });
-  const cond = res.data?.[0] ?? null;
-  if ((res.totalCount ?? 0) > 1 || (cond && text(cond["서비스ID"]) !== serviceId)) {
-    throw new Error(
-      `정부24 supportConditions 서비스ID 조건이 무시됨 (요청 ${serviceId}, 응답 ${text(cond?.["서비스ID"])}, totalCount ${res.totalCount})`,
-    );
+export async function fetchAllConditions(): Promise<Map<string, Raw>> {
+  const PER_PAGE = 2000;
+  const out = new Map<string, Raw>();
+  for (let page = 1; ; page++) {
+    const res = await get("supportConditions", page, PER_PAGE);
+    for (const c of res.data ?? []) {
+      const id = text(c["서비스ID"]);
+      if (id) out.set(id, c);
+    }
+    if ((res.data?.length ?? 0) < PER_PAGE) break;
   }
-  return cond;
+  return out;
 }
 
 /**
