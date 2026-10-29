@@ -17,26 +17,27 @@ import { timestamp, type PolicyInsert } from "@/lib/sources/types";
  */
 
 /**
- * 조회 창 — 지금(KST)부터 3시간 전까지. 트리거는 20분 간격이니 GitHub가 실행을 몇 번 건너뛰어도
- * 창 안에 남는다. 창이 겹쳐 같은 건이 매번 다시 오지만 DB와 대조해 바뀐 것만 처리하므로
- * 비용은 목록 조회 한 번이다.
+ * 조회 창 — 지금(KST)부터 24시간 전까지. 창이 겹쳐 같은 건이 매번 다시 오지만 DB와 대조해
+ * 바뀐 것만 처리하므로 비용은 목록 조회 한 번이다.
  *
- * **하루 단위로 잡으면 안 된다.** 정부24는 수정이 잦다 — 어제 0시부터 약 34시간 동안 수정 820건,
- * 신규 0건이었다 (실측). 하루 창이면 상한(아래)에 걸려 증분이 매번 포기된다.
+ * **창은 트리거가 실제로 비는 시간보다 길어야 한다.** 처음엔 3시간이었는데, GitHub Actions
+ * 스케줄이 3~7시간 간격으로만 돌아(20분 설정, `sync_runs` 실측) 그 사이 수정분이 창 밖으로
+ * 빠졌다 — 하루 수정 353건 중 47건만 반영됐다. 트리거를 `pg_cron`으로 옮긴 뒤에도 장애로
+ * 몇 시간 비는 경우를 덮으려고 하루를 본다.
  */
-const LOOKBACK_HOURS = 3;
+const LOOKBACK_HOURS = 24;
 
 /**
  * 목록이 이보다 많으면 증분을 포기한다. 일괄 수정이 있었던 경우다 — 전량 순회의 몫이다.
- * 3시간 창의 평소 건수는 수십 건이다 (하루 수정 약 580건 기준).
+ * 하루 창의 평소 건수는 업무일 350~600건이다. 한 번의 요청으로 받는다 (perPage 2,000, 1초 이내 실측).
  */
-const MAX_LISTED = 500;
+const MAX_LISTED = 2000;
 
 /**
  * 한 번에 저장하는 상한. 라우트 상한(60초) 안에서 전량 순회에 시간을 남기려고 둔다.
- * 남은 건은 DB와 여전히 다르므로 다음 트리거가 자연스럽게 이어받는다.
+ * 남은 건은 DB와 여전히 다르므로 다음 트리거가 자연스럽게 이어받는다 (창 안에 있는 한).
  */
-const MAX_UPSERT = 300;
+const MAX_UPSERT = 1000;
 
 /** upsert 한 번에 보내는 행 수 — 전량 순회의 페이지 크기와 같다 */
 const UPSERT_CHUNK = 100;
@@ -124,7 +125,9 @@ export async function syncGov24Changes(db: SupabaseClient): Promise<IncrementalR
   // 불러도 429로 절반이 막혔다 (실측: 100건 중 51건). 전량은 2,000건씩 6번, 수 초다.
   const conds = await gov24.fetchAllConditions();
 
-  const rows: PolicyInsert[] = [];
+  // `fetched_at`은 직접 찍는다 — 이유는 `run.ts`의 같은 줄 참고.
+  const fetchedAt = new Date().toISOString();
+  const rows: (PolicyInsert & { fetched_at: string })[] = [];
   const batch = targets.slice(0, MAX_UPSERT);
   for (const svc of batch) {
     const id = String(svc["서비스ID"]).trim();
@@ -135,7 +138,7 @@ export async function syncGov24Changes(db: SupabaseClient): Promise<IncrementalR
       result.missingCond++;
       continue;
     }
-    rows.push(gov24.toPolicy({ svc, cond }));
+    rows.push({ ...gov24.toPolicy({ svc, cond }), fetched_at: fetchedAt });
   }
 
   const valid = rows.filter((p) => p.external_id);

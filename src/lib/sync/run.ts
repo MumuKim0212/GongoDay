@@ -19,16 +19,17 @@ import { syncGov24Changes, type IncrementalResult } from "./incremental";
 const PAGE_SIZE = 100;
 
 /**
- * 한 번에 받는 페이지 수. 라우트 상한(60초) 안에 들어가야 한다.
+ * 한 번에 받는 페이지 수의 상한. 실제로 끊는 것은 아래 시간 예산이다.
  *
- * 전량은 한 번에 안 끝난다 — 온통청년 27페이지(3회), 정부24 110페이지(11회).
- * `last_page`로 이어받으므로 **20분 트리거가 몇 시간에 걸쳐 한 바퀴를 채운다.**
+ * 10페이지였을 때 실행이 5~12초에 끝났다(`sync_runs` 실측) — 60초 상한의 대부분을 놀렸다.
+ * 50이면 온통청년 27페이지는 한 번에, 정부24 110페이지는 3번 안팎에 한 바퀴를 돈다.
  */
-const PAGES_PER_CALL = 10;
+const PAGES_PER_CALL = 50;
 
 /**
- * 이 시간이 지나면 새 페이지를 시작하지 않는다. 증분 수집이 앞에서 시간을 쓰므로
- * 페이지 수만으로는 라우트 상한(60초)을 보장할 수 없다. 남은 페이지는 다음 트리거가 이어받는다.
+ * 이 시간이 지나면 새 페이지를 시작하지 않는다 — 실행을 실제로 끊는 기준이다. 증분 수집이 앞에서
+ * 시간을 쓰고 페이지마다 걸리는 시간도 흔들려서, 페이지 수만으로는 라우트 상한(60초)을 보장할 수 없다.
+ * 남은 페이지는 다음 트리거가 이어받는다.
  */
 const PAGE_BUDGET_MS = 40_000;
 
@@ -170,8 +171,11 @@ export async function runSync(source: SourceName, trigger: SyncTrigger): Promise
       let saved = 0;
       if (res.items.length > 0) {
         // toPolicy는 throw하지 않는다. external_id가 빈 건만 걸러낸다.
+        // `fetched_at`은 여기서 찍는다 — 컬럼 기본값(now())은 첫 insert에만 걸리고 upsert의
+        // update에는 안 걸려서, 넣지 않으면 "처음 들어온 시각"에 영영 멈춘다.
+        const fetchedAt = new Date().toISOString();
         const rows = (res.items as unknown[])
-          .map((it) => mod.toPolicy(it) as PolicyInsert)
+          .map((it) => ({ ...(mod.toPolicy(it) as PolicyInsert), fetched_at: fetchedAt }))
           .filter((p) => p.external_id);
 
         const { error: upsertError, count } = await db
