@@ -4,10 +4,11 @@ import { log } from "@/lib/log";
 import { isSourceName, runSync } from "@/lib/sync/run";
 
 /**
- * 수집 트리거 — **20분 크론 전용** (`.github/workflows/sync.yml`).
+ * 수집 트리거 — **20분 크론 전용** (Supabase pg_cron, `supabase/cron.sql`).
  *
- * Vercel Hobby 크론은 하루 1회까지라(`0 * * * *`는 배포가 실패한다) 트리거를 GitHub Actions에 둔다.
- * 한 번에 10페이지씩이라 정부24 한 바퀴는 트리거 11번(약 3.7시간)에 걸쳐 채워진다 — 어디서 끊기든
+ * Vercel Hobby 크론은 하루 1회까지라(`0 * * * *`는 배포가 실패한다) 트리거를 밖에 둔다. 처음엔
+ * GitHub Actions였는데 스케줄이 3~7시간 간격으로만 돌아 pg_cron으로 옮겼다 (ARCHITECTURE §4.3).
+ * 실행당 40초 예산이라 정부24 한 바퀴는 트리거 3번 안팎에 걸쳐 채워진다 — 어디서 끊기든
  * `last_page`가 남고 다음 트리거가 이어받으므로 체인이나 감시 장치가 필요 없다.
  * 새 공고는 그 한 바퀴를 기다리지 않는다 — 증분 수집이 먼저 받는다 (`lib/sync/incremental.ts`).
  *

@@ -16,7 +16,7 @@
 - **DB / Auth** — Supabase (Postgres, RLS, 익명 로그인)
 - **AI** — OpenAI API (구조화 출력으로 판정)
 - **외부 데이터** — 온통청년 청년정책 API, 정부24 공공서비스정보 API(odcloud)
-- **배포 / 자동화** — Vercel, GitHub Actions(매시간 수집 트리거)
+- **배포 / 자동화** — Vercel, Supabase pg_cron(20분 간격 수집 트리거)
 
 ## 무엇을 하나
 
@@ -47,7 +47,7 @@ cp .env.example .env.local   # 키를 채운다 (각 키의 용도는 .env.examp
 npm run dev
 ```
 
-`supabase/schema.sql`이 스키마의 단일 진실 원천입니다. 정책 데이터는 **매시간 GitHub Actions**(`.github/workflows/sync.yml`)가 `POST /api/sync`를 쳐서 조회합니다. 같은 워크플로가 이어서 `POST /api/notify`를 쳐서 텔레그램 알림 배치를 돌립니다. 텔레그램 봇을 쓰려면 `.env.local`에 `TELEGRAM_*` 값을 채운 뒤 `node scripts/telegram-set-webhook.mjs`로 웹훅을 한 번 등록해야 합니다.
+`supabase/schema.sql`이 스키마의 단일 진실 원천입니다. 정책 데이터는 **20분마다 Supabase pg_cron**(`supabase/cron.sql`)이 `POST /api/sync`를 쳐서 조회하고, 4분 뒤 `POST /api/notify`를 쳐서 텔레그램 알림 배치를 돌립니다. 새 환경에서는 Vault에 `CRON_SECRET`을 넣은 뒤(파일 머리말 참고) `cron.sql`을 한 번 실행해야 합니다. `.github/workflows/sync.yml`은 손으로 한 번 돌려볼 때만 씁니다. 텔레그램 봇을 쓰려면 `.env.local`에 `TELEGRAM_*` 값을 채운 뒤 `node scripts/telegram-set-webhook.mjs`로 웹훅을 한 번 등록해야 합니다.
 
 ## 문서
 

@@ -1,25 +1,16 @@
-name: 정책 수집
+name: 정책 수집 (수동)
 
-# Vercel Hobby 크론은 하루 1회까지다 — `0 * * * *`은 실행이 안 되는 게 아니라 **배포 자체가 실패한다.**
-# 그래서 트리거만 여기 두고, 받는 쪽은 그대로 Vercel이다 (`POST /api/sync`).
+# **평소 트리거는 여기가 아니라 Supabase pg_cron이다** (`supabase/cron.sql`).
 #
-# 한 번에 10페이지씩 받고 `sync_runs.last_page`로 이어받으므로 한 바퀴가 여러 시간에 걸쳐 채워진다.
-#   온통청년 27페이지 → 1시간 · 정부24 110페이지 → 약 3.7시간 (20분 간격 기준)
-# 어디서 끊기든 진행이 DB에 남아 다음 트리거가 이어받는다. 그래서 체인도 감시 장치도 없다.
-# 새 공고는 이 한 바퀴를 기다리지 않는다 — 정부24는 매 트리거마다 최근 변경분을 먼저 받는다
-# (`lib/sync/incremental.ts`).
+# 이 워크플로가 `*/20`(나중엔 `7,27,47`) 스케줄로 돌 때 실제로는 3~7시간 간격, 하루 4~5번만 실행됐다
+# (`sync_runs` 실측). GitHub는 schedule 이벤트를 부하에 따라 미루거나 버리고, 레포가 60일간 조용하면
+# 아예 끈다. 그 사이 정부24 한 바퀴가 2~3일로 늘어 하루 수정 353건 중 47건만 반영됐다.
 #
-# **정각을 피한다.** GitHub는 schedule 이벤트가 몰리는 정각(:00)에 실행을 수십 분씩 미루거나
-# 건너뛴다. 같은 20분 간격을 7분 어긋나게 둔다.
-#
-# ⚠️ **GitHub는 레포가 60일간 조용하면 schedule을 자동 비활성화한다.** 수집이 소리 없이 멈추므로,
-#    /admin의 '마지막 성공'이 하루 이상 밀려 있으면 Actions 탭에서 다시 켤 것.
+# 여기 남긴 것은 **손으로 한 번 돌려볼 때**뿐이다 — pg_cron과 같은 순서(두 소스 → 알림)로 한 번 친다.
+# 스케줄을 다시 넣지 말 것: pg_cron과 겹치면 같은 `last_page`를 둘이 읽어 API 호출만 두 배가 된다.
 
 on:
-  schedule:
-    - cron: "7,27,47 * * * *"
-    - cron: "0 3 * * *" # 하루 1회 — 운영 로그 정리 (KST 정오)
-  workflow_dispatch: # 손으로 한 번 돌려볼 때
+  workflow_dispatch:
 
 # 앞 실행이 아직 돌고 있으면 겹치지 않게 한다 — 같은 `last_page`를 둘이 읽으면 API 호출만 두 배다.
 concurrency:
@@ -27,9 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # 두 스케줄이 같은 워크플로에 있어 트리거만으로 구분한다 — 하루 1회 크론에서는 건너뛴다.
   sync:
-    if: github.event.schedule != '0 3 * * *'
     runs-on: ubuntu-latest
     env:
       SYNC_URL: ${{ vars.SYNC_URL || 'https://gongoday.vercel.app' }}
@@ -57,17 +46,4 @@ jobs:
         if: always()
         run: |
           curl --fail-with-body -sS --max-time 120 -X POST "$SYNC_URL/api/notify" \
-            -H "Authorization: Bearer $CRON_SECRET"
-
-  # 운영 로그(verdict_runs/notify_runs/sync_runs) 정리 — 하루 1회만.
-  cleanup:
-    if: github.event.schedule == '0 3 * * *'
-    runs-on: ubuntu-latest
-    env:
-      SYNC_URL: ${{ vars.SYNC_URL || 'https://gongoday.vercel.app' }}
-      CRON_SECRET: ${{ secrets.CRON_SECRET }}
-    steps:
-      - name: 운영 로그 정리
-        run: |
-          curl --fail-with-body -sS --max-time 120 -X POST "$SYNC_URL/api/cleanup" \
             -H "Authorization: Bearer $CRON_SECRET"

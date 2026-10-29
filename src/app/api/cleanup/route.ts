@@ -4,7 +4,7 @@ import { log } from "@/lib/log";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
- * 운영 로그 정리 배치 — **하루 1회 크론 전용** (`.github/workflows/sync.yml`).
+ * 운영 로그 정리 배치 — **하루 1회 크론 전용** (Supabase pg_cron, `supabase/cron.sql`).
  *
  * `verdict_runs` · `notify_runs` · `sync_runs`는 실행마다 한 행씩 쌓이는 순수 장부라
  * 무한히 늘어난다. `RETENTION_DAYS`보다 오래된 행을 지운다.

@@ -12,7 +12,7 @@ import type { DecidedVerdict } from "@/lib/verdict/validate";
 import { sendMessage } from "@/lib/telegram/client";
 
 /**
- * 텔레그램 알림 배치 — **매시간 크론 전용** (`.github/workflows/sync.yml`, `/api/sync` 다음 스텝).
+ * 텔레그램 알림 배치 — **20분 크론 전용** (Supabase pg_cron, `supabase/cron.sql` — 수집 4분 뒤).
  *
  * ```
  * notify_checked_at이 null인 정책을 오래된 순으로 조회 (최대 MAX_POLICIES건)
